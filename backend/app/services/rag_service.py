@@ -336,12 +336,14 @@ class RAGService:
                 logger.warning("Overall Tavily deadline reached before search query %d.", attempt + 1)
                 break
 
-            results: List[Dict[str, Any]] = []
             try:
-                results = web_search_service.search_sap_authoritative(
-                    search_query,
-                    deadline=overall_deadline,
-                )
+                try:
+                    results = web_search_service.search_sap_authoritative(
+                        search_query,
+                        deadline=overall_deadline,
+                    )
+                except TypeError:
+                    results = web_search_service.search_sap_authoritative(search_query)
                 if results:
                     search_returned_results = True
                     known_urls = {str(item.get("url", "")) for item in all_results}
@@ -715,8 +717,11 @@ class RAGService:
                 logger.warning("LLM generation for insufficient evidence failed: %s", e)
 
             if candidate_answer and candidate_answer.strip():
-                final_answer = candidate_answer
-                effective_source_type = "sap_expert"
+                final_answer = (
+                    "I could not verify this SAP answer to the required confidence level (available evidence is insufficient and cannot be verified).\n\n"
+                    + candidate_answer.strip()
+                )
+                effective_source_type = "insufficient"
                 final_verification = {"grounding_score": 0.70, "status": "supported", "critical_unsupported_claims": [], "passes_grounding_gate": True}
             else:
                 final_answer = self._insufficient_answer("insufficient", fallback_reason or "Available evidence is insufficient.")
@@ -1221,13 +1226,16 @@ class RAGService:
                 final_verification = {"grounding_score": 0.95, "status": "supported", "critical_unsupported_claims": [], "passes_grounding_gate": True}
                 stage_timings["grounding_ms"] = 0.0
         elif selected_source_type == "insufficient" or not selected_passages:
-            effective_source = "sap_expert"
+            effective_source = "insufficient"
+            disclaimer = "I could not verify this SAP answer to the required confidence level (available evidence is insufficient and cannot be verified).\n\n"
+            yield {"type": "token", "content": disclaimer}
+            token_buffer.append(disclaimer)
             stream_gen = None
             try:
                 stream_gen = llm_service.stream_answer(
                     cleaned_query,
                     [],
-                    source_type=effective_source,
+                    source_type="sap_expert",
                     tone_guidance=(tone_guidance + "\nNote: Documentation evidence is unavailable or insufficient. Provide a structured first-pass investigation plan based on standard SAP architecture principles. Clearly mark unverified possibilities and cite missing evidence without fabricating identifiers.").strip(),
                     memory_context=memory_retrieval_res.get("formatted_context", ""),
                     chat_history_context=current_chat_context,
