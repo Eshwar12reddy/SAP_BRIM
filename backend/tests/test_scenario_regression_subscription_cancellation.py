@@ -222,11 +222,18 @@ The investigation follows the SAP BRIM integration chain to identify where the c
             {"confidence": 0.83, "evidence_score": 0.83},
         )
         with patch("backend.app.services.rag_service.llm_service.generate_answer", return_value=expected_answer):
-            res = rag_service.process_query(mock_db, QUERY, user=user)
+            with patch("backend.app.services.rag_service.grounding_service.verify_answer", return_value={
+                "grounding_score": 0.95,
+                "status": "supported",
+                "passes_grounding_gate": True,
+                "critical_unsupported_claims": [],
+                "claims": [],
+            }):
+                res = rag_service.process_query(mock_db, QUERY, user=user)
 
-            assert res["source_type"] == "knowledge_base"
-            assert res["answer"] != ""
-            answer_text = res["answer"]
+                assert res["source_type"] == "knowledge_base"
+                assert res["answer"] != ""
+                answer_text = res["answer"]
 
             # Must NOT demand version details upfront
             assert "specific sap product and deployment model (e.g., sap s/4hana vs sap ecc vs sap brim)" not in answer_text.lower()
