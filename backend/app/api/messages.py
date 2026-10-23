@@ -52,6 +52,21 @@ def get_messages(
         .all()
     )
 
+    # If the conversation ended with an unreplied user message (e.g. streaming was interrupted by browser refresh/disconnect
+    # before an assistant message could be persisted), safely recover by persisting an interrupted assistant response.
+    if messages and messages[-1].role == "user":
+        interrupted_msg = Message(
+            chat_id=chat_id,
+            role="assistant",
+            content="Generation interrupted.",
+            source_type="interrupted",
+            grounding_score=None
+        )
+        db.add(interrupted_msg)
+        db.commit()
+        db.refresh(interrupted_msg)
+        messages.append(interrupted_msg)
+
     result = []
     for msg in messages:
         c_list = [
@@ -509,6 +524,21 @@ def save_partial_message(
 ):
     """Explicitly saves a partial assistant message when generation is stopped."""
     chat = verify_chat_ownership(chat_id, current_user.id, db)
+    # Avoid creating duplicate assistant messages if one was already persisted for this turn
+    last_msg = (
+        db.query(Message)
+        .filter(Message.chat_id == chat_id)
+        .order_by(Message.created_at.desc())
+        .first()
+    )
+    if last_msg and last_msg.role == "assistant" and last_msg.source_type == "interrupted":
+        if msg_in.content and msg_in.content.strip():
+            last_msg.content = msg_in.content.strip()
+        chat.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(last_msg)
+        return {"status": "updated", "message_id": last_msg.id}
+
     partial_msg = Message(
         chat_id=chat_id,
         role="assistant",
@@ -648,7 +678,7 @@ def handle_streaming_response(
                             v_holders = visual_service.plan_and_create_placeholders(
                                 db=save_db,
                                 user_id=str(current_user.id),
-                                chat_id=str(chat.id),
+                                chat_id=str(chat_id),
                                 message_id=str(assistant_msg.id),
                                 query=query,
                                 answer_text=full_answer,
@@ -684,19 +714,34 @@ def handle_streaming_response(
             yield f"data: {json.dumps(err_event)}\n\n"
 
         finally:
-            # If aborted/interrupted before normal 'done' event, persist partial answer
-            if not done_payload and accumulated_text.strip():
+            # If aborted/interrupted before normal 'done' event, persist partial or interrupted answer
+            if not done_payload:
                 try:
-                    partial_msg = Message(
-                        chat_id=chat_id,
-                        role="assistant",
-                        content=accumulated_text.strip(),
-                        source_type="interrupted",
-                        grounding_score=None
+                    last_msg = (
+                        save_db.query(Message)
+                        .filter(Message.chat_id == chat_id)
+                        .order_by(Message.created_at.desc())
+                        .first()
                     )
-                    save_db.add(partial_msg)
-                    save_db.commit()
-                    logger.info(f"Persisted partially generated response ({len(accumulated_text)} chars) for chat {chat_id}")
+                    content_to_save = accumulated_text.strip() if accumulated_text.strip() else "Generation interrupted."
+                    if last_msg and last_msg.role == "assistant":
+                        # If an interrupted placeholder was already created (e.g. by get_messages or save-partial),
+                        # update it with accumulated text if available rather than creating a duplicate row.
+                        if last_msg.source_type == "interrupted" and accumulated_text.strip():
+                            last_msg.content = accumulated_text.strip()
+                            save_db.commit()
+                            logger.info("Updated interrupted assistant message id=%s with %d chars for chat %s", last_msg.id, len(accumulated_text), chat_id)
+                    else:
+                        partial_msg = Message(
+                            chat_id=chat_id,
+                            role="assistant",
+                            content=content_to_save,
+                            source_type="interrupted",
+                            grounding_score=None
+                        )
+                        save_db.add(partial_msg)
+                        save_db.commit()
+                        logger.info(f"Persisted partially generated response ({len(content_to_save)} chars) for chat {chat_id}")
                 except Exception as save_err:
                     logger.error(f"Failed to persist partial interrupted message: {save_err}")
             save_db.close()

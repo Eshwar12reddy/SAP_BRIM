@@ -1,6 +1,7 @@
 import { sanitizeMermaid } from './sanitizeMermaid';
 import React, { useEffect, useRef, useState, useId } from 'react';
 import mermaid from 'mermaid';
+import { apiRepairMermaid } from '../../services/api';
 import {
   Code,
   Eye,
@@ -11,7 +12,6 @@ import {
   ZoomOut,
   RotateCcw,
   Sparkles,
-  AlertCircle
 } from 'lucide-react';
 
 interface MermaidViewerProps {
@@ -20,8 +20,11 @@ interface MermaidViewerProps {
   isStreaming?: boolean;
 }
 
-// Module-level cache: key = `${theme}::${sanitizedChart}` -> SVG string
+// Module-level caches
+// svgRenderCache: key = `${theme}::${sanitizedChart}` -> SVG string
 const svgRenderCache = new Map<string, string>();
+// repairedChartCache: key = originalBrokenChart -> repairedCleanChart
+const repairedChartCache = new Map<string, string>();
 
 function getCacheKey(chartSource: string, isDark: boolean): string {
   return `${isDark ? 'dark' : 'light'}::${chartSource}`;
@@ -46,7 +49,8 @@ const MermaidViewerComponent: React.FC<MermaidViewerProps> = ({
     return svgRenderCache.get(key) || '';
   });
 
-  const [renderError, setRenderError] = useState<string | null>(null);
+  const [renderFailed, setRenderFailed] = useState(false);
+  const [_renderError, setRenderError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
@@ -64,6 +68,8 @@ const MermaidViewerComponent: React.FC<MermaidViewerProps> = ({
       setEditableChart(trimmed);
       setZoomLevel(1);
       setPanOffset({ x: 0, y: 0 });
+      setRenderFailed(false);
+      setRenderError(null);
     }
   }, [chart]);
 
@@ -72,18 +78,6 @@ const MermaidViewerComponent: React.FC<MermaidViewerProps> = ({
     if (isStreaming || !currentChart.trim()) return;
 
     const isDark = document.documentElement.classList.contains('dark');
-    const sanitized = sanitizeMermaid(currentChart.trim());
-    const cacheKey = getCacheKey(sanitized, isDark);
-
-    // If already in cache, ensure state is in sync and avoid calling mermaid.render
-    if (svgRenderCache.has(cacheKey)) {
-      const cachedSvg = svgRenderCache.get(cacheKey)!;
-      if (svgContent !== cachedSvg) {
-        setSvgContent(cachedSvg);
-      }
-      setRenderError(null);
-      return;
-    }
 
     // Configure mermaid with strict security level to block arbitrary HTML
     mermaid.initialize({
@@ -107,21 +101,89 @@ const MermaidViewerComponent: React.FC<MermaidViewerProps> = ({
     let isMounted = true;
 
     const renderDiagram = async () => {
-      const renderId = `svg_${uniqueId}_${++renderCounter.current}`;
+      // 1. Initial sanitization
+      let clean = sanitizeMermaid(currentChart.trim());
+
+      // Check if we previously repaired this diagram
+      if (repairedChartCache.has(currentChart.trim())) {
+        clean = repairedChartCache.get(currentChart.trim())!;
+      }
+
+      const cacheKey = getCacheKey(clean, isDark);
+
+      // If already in SVG cache, apply immediately
+      if (svgRenderCache.has(cacheKey)) {
+        const cachedSvg = svgRenderCache.get(cacheKey)!;
+        if (isMounted) {
+          setSvgContent(cachedSvg);
+          setRenderFailed(false);
+          setRenderError(null);
+        }
+        return;
+      }
+
+      // 2. Validate with await mermaid.parse(clean, { suppressErrors: false }) before rendering
+      let isValid = false;
+      let lastError = '';
+
       try {
-        setRenderError(null);
-        const { svg } = await mermaid.render(renderId, sanitized);
+        await mermaid.parse(clean, { suppressErrors: false });
+        isValid = true;
+      } catch (parseErr: any) {
+        lastError = parseErr?.message || String(parseErr);
+      }
+
+      // 3. If parse fails: send broken source plus exact parser error back to LLM.
+      // Retry up to 2 times, re-sanitizing and re-validating each time.
+      if (!isValid) {
+        for (let attempt = 1; attempt <= 2 && !isValid; attempt++) {
+          try {
+            console.warn(`Mermaid validation failed (attempt ${attempt}/2). Requesting auto-repair...`, lastError);
+            const repairedRaw = await apiRepairMermaid(clean, lastError);
+            const sanitizedRepaired = sanitizeMermaid(repairedRaw);
+            await mermaid.parse(sanitizedRepaired, { suppressErrors: false });
+            // Succeeded!
+            clean = sanitizedRepaired;
+            isValid = true;
+            repairedChartCache.set(currentChart.trim(), clean);
+            break;
+          } catch (repairErr: any) {
+            lastError = repairErr?.message || String(repairErr);
+            console.warn(`Mermaid auto-repair attempt ${attempt} failed:`, lastError);
+          }
+        }
+      }
+
+      // 4. Safe fallback: If all retries fail, do NOT show a red error box.
+      // Show diagram source in a code block with a Copy button and "Diagram could not be rendered",
+      // and log error to console/server.
+      if (!isValid) {
+        console.error('Diagram could not be rendered after retries. Mermaid parse error:', lastError);
+        if (isMounted) {
+          setRenderFailed(true);
+          setRenderError(lastError);
+        }
+        return;
+      }
+
+      // 5. Wrap rendering in try/catch and use unique ID per render call so repeated renders don't clash
+      const renderId = `svg_${uniqueId}_${++renderCounter.current}_${Date.now()}`;
+      try {
+        const { svg } = await mermaid.render(renderId, clean);
         document.getElementById(`d${renderId}`)?.remove();
         svgRenderCache.set(cacheKey, svg);
         if (isMounted) {
           setSvgContent(svg);
+          setRenderFailed(false);
+          setRenderError(null);
         }
       } catch (err: any) {
         document.getElementById(`d${renderId}`)?.remove();
         document.getElementById(renderId)?.remove();
+        console.error('Mermaid render error:', err);
         if (isMounted) {
-          console.warn('Mermaid render error:', err);
-          setRenderError(err?.message || 'Invalid diagram syntax.');
+          setRenderFailed(true);
+          setRenderError(err?.message || 'Diagram could not be rendered');
         }
       }
     };
@@ -262,7 +324,7 @@ const MermaidViewerComponent: React.FC<MermaidViewerProps> = ({
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 text-xs">
           {/* Zoom controls (only in diagram mode) */}
-          {viewMode === 'diagram' && !renderError && (
+          {viewMode === 'diagram' && !renderFailed && (
             <div className="flex items-center gap-1 mr-2 px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <button
                 type="button"
@@ -358,34 +420,42 @@ const MermaidViewerComponent: React.FC<MermaidViewerProps> = ({
       {/* Main Content Area */}
       {viewMode === 'diagram' ? (
         <div className="relative min-h-[220px] p-4 flex flex-col items-center justify-center bg-white/40 dark:bg-slate-950/40 rounded-b-xl">
-          {renderError ? (
-            <div className="w-full max-w-2xl p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 font-semibold">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>Mermaid Diagram Parsing Error</span>
+          {renderFailed ? (
+            <div className="w-full max-w-2xl p-4 rounded-xl bg-slate-100/90 dark:bg-[#15171e] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs shadow-2xs">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                  <Code className="w-4 h-4 text-slate-500" />
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">Diagram could not be rendered</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handleCopyCode}
-                    className="flex items-center gap-1 px-2 py-1 rounded bg-red-500/15 hover:bg-red-500/25 text-red-700 dark:text-red-300 transition-colors"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-medium transition-colors shadow-2xs cursor-pointer"
+                    title="Copy Diagram Source"
                   >
-                    <Copy className="w-3 cursor-pointer" />
-                    <span>Copy Source</span>
+                    {copied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        <span className="text-emerald-500">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Copy</span>
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode('source')}
-                    className="px-2.5 py-1 rounded-md bg-red-600 hover:bg-red-700 text-white font-medium text-xs transition-colors cursor-pointer"
+                    className="px-2.5 py-1 rounded-md bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium text-xs transition-colors cursor-pointer"
                   >
                     Edit Source
                   </button>
                 </div>
               </div>
-              <p className="font-mono text-[11px] mb-3 text-red-500/90 whitespace-pre-wrap">{renderError}</p>
-              <div className="mt-3 p-3 rounded bg-slate-900/90 text-slate-300 font-mono text-[11px] overflow-x-auto max-h-48 border border-red-500/20">
-                <div className="text-[10px] text-slate-400 uppercase font-semibold mb-1">Diagram Source Fallback:</div>
+              <div className="p-3 rounded-lg bg-slate-950 text-slate-300 font-mono text-[11px] overflow-x-auto max-h-56 border border-slate-800 leading-relaxed">
                 <pre>{currentChart}</pre>
               </div>
             </div>

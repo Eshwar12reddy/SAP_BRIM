@@ -1,4 +1,7 @@
 import json
+import logging
+from typing import Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -7,13 +10,62 @@ from datetime import datetime, timezone
 from backend.app.database import get_db
 from backend.app.schemas.rag import RAGQueryRequest, RAGQueryResponse
 from backend.app.services.rag_service import rag_service
+from backend.app.services.llm_service import llm_service
 from backend.app.models.user import User
 from backend.app.models.chat import Chat
 from backend.app.models.message import Message
-from backend.app.security.auth import get_current_user
+from backend.app.security.auth import get_current_user, oauth2_scheme
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
+
+
+class MermaidRepairRequest(BaseModel):
+    chart: str
+    error: str
+
+
+class MermaidRepairResponse(BaseModel):
+    repaired: str
+    success: bool
+
+
+@router.post("/repair-mermaid", response_model=MermaidRepairResponse)
+def repair_mermaid(
+    request: MermaidRepairRequest,
+    token: Optional[str] = Depends(oauth2_scheme),
+):
+    """
+    Repair broken Mermaid diagram source using LLM.
+    Sends the broken source and exact parser error with strict repair instructions.
+    """
+    instruction = "Fix this Mermaid so it parses. Return only the corrected Mermaid code, ASCII only."
+    prompt = (
+        f"{instruction}\n\n"
+        f"Broken Mermaid Code:\n```mermaid\n{request.chart}\n```\n\n"
+        f"Parser Error:\n{request.error}\n\n"
+        f"Rules:\n"
+        f"- Output only a valid Mermaid code block, nothing else inside it.\n"
+        f"- Use ASCII characters only (plain hyphen '-', straight quotes). Never use U+2011, en/em dashes, or smart quotes.\n"
+        f"- Node IDs must be simple (A, B, C or step1, step2), with no spaces or special characters.\n"
+        f"- Wrap EVERY node label in double quotes: A[\"Label text\"].\n"
+        f"- Use <br/> for line breaks inside labels. Never put a real newline inside a label.\n"
+        f"- Never use double quotes inside a label. Use single quotes instead.\n"
+        f"- Every `subgraph` must have a matching `end`.\n"
+        f"- Keep diagrams under about 25 nodes. Finish the whole diagram."
+    )
+    system_prompt = (
+        "You are an expert Mermaid diagram syntax repair specialist. "
+        "Fix this Mermaid so it parses. Return only the corrected Mermaid code, ASCII only. "
+        "Never include conversational text or markdown prose outside the mermaid block."
+    )
+    try:
+        raw_repaired = llm_service.generate_completion(prompt, system_prompt=system_prompt)
+        return MermaidRepairResponse(repaired=(raw_repaired or "").strip(), success=True)
+    except Exception as exc:
+        logger.error("Failed to repair Mermaid diagram via LLM: %s", exc)
+        return MermaidRepairResponse(repaired=request.chart, success=False)
 
 
 @router.post("/query", response_model=RAGQueryResponse)

@@ -602,6 +602,14 @@ ARCHITECTURE DIAGRAMS
 - Explain existing systems, integrations, and gaps first.
 - Distinguish observed architecture from a proposed design.
 - Include a valid Mermaid diagram when an architecture diagram is requested.
+  * Output only a valid Mermaid code block, nothing else inside it.
+  * Use ASCII characters only (plain hyphen "-", straight quotes). Never use U+2011, en/em dashes, or smart quotes.
+  * Node IDs must be simple (A, B, C or step1, step2), with no spaces or special characters.
+  * Wrap EVERY node label in double quotes: A["Label text"].
+  * Use <br/> for line breaks inside labels. Never put a real newline inside a label.
+  * Never use double quotes inside a label. Use single quotes instead.
+  * Every `subgraph` must have a matching `end`.
+  * Keep diagrams under about 25 nodes. Finish the whole diagram.
 - For SAP BRIM, consider SOM, Convergent Charging (CC), Convergent
   Invoicing (CI), FI-CA, S/4HANA Finance/GL, mediation, payment gateways,
   tax engines, and reconciliation when relevant.

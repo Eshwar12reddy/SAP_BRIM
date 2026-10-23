@@ -8,6 +8,7 @@ from backend.app.database import Base, get_db
 from backend.app.models.user import User
 from backend.app.models.chat import Chat
 from backend.app.models.message import Message
+from backend.app.models.citation import Citation
 from backend.app.security.auth import hash_password, create_access_token
 
 from sqlalchemy.pool import StaticPool
@@ -390,5 +391,173 @@ def test_chat_archiving_and_filtering():
     # When include_archived=true, it is returned
     archived_list = client.get("/api/chats?include_archived=true", headers=headers).json()
     assert chat_id in [c["id"] for c in archived_list]
+
+
+def test_refresh_after_completion_restores_persisted_history():
+    """Scenario B: Refresh after completion restores complete response and does not regenerate."""
+    user, token = create_user_and_token("refresh_b@clyptus.ai")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db = TestingSessionLocal()
+    chat = Chat(user_id=user.id, title="SAP SOM Replication Chat")
+    db.add(chat)
+    db.commit()
+    chat_id = chat.id
+
+    u_msg = Message(chat_id=chat_id, role="user", content="How does SOM replication work?")
+    db.add(u_msg)
+    db.commit()
+
+    a_msg = Message(
+        chat_id=chat_id,
+        role="assistant",
+        content="SOM provider contracts replicate to SAP CC as charged items.",
+        source_type="knowledge_base",
+        grounding_score=0.92,
+    )
+    db.add(a_msg)
+    db.commit()
+    db.refresh(a_msg)
+
+    # Attach citation
+    cit = Citation(
+        message_id=a_msg.id,
+        source_type="knowledge_base",
+        document_id="doc-som-guide",
+        document_name="SOM_Replication_Guide.pdf",
+        chunk_id="chunk-1",
+        page_number=14,
+        section="Contract Replication",
+        similarity_score=0.89,
+        citation_text="Provider contracts replicate to CC charging.",
+    )
+    db.add(cit)
+    db.commit()
+    db.close()
+
+    # Simulate browser refresh: GET /chats/{chat_id}/messages
+    resp = client.get(f"/api/chats/{chat_id}/messages", headers=headers)
+    assert resp.status_code == 200
+    msgs = resp.json()
+
+    assert len(msgs) == 2
+    assert msgs[0]["role"] == "user"
+    assert msgs[0]["content"] == "How does SOM replication work?"
+    assert msgs[1]["role"] == "assistant"
+    assert msgs[1]["content"] == "SOM provider contracts replicate to SAP CC as charged items."
+    assert msgs[1]["source_type"] == "knowledge_base"
+    assert msgs[1]["grounding_score"] == 0.92
+    assert len(msgs[1]["citations"]) == 1
+    assert msgs[1]["citations"][0]["document"] == "SOM_Replication_Guide.pdf"
+
+
+def test_refresh_during_streaming_preserves_prior_messages_and_marks_interrupted():
+    """Scenario A: Refresh during streaming recovers interrupted state and preserves prior history."""
+    user, token = create_user_and_token("refresh_a@clyptus.ai")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db = TestingSessionLocal()
+    chat = Chat(user_id=user.id, title="Interrupted Stream Chat")
+    db.add(chat)
+    db.commit()
+    chat_id = chat.id
+
+    # Prior completed turn
+    db.add(Message(chat_id=chat_id, role="user", content="Prior completed question"))
+    db.add(Message(chat_id=chat_id, role="assistant", content="Prior completed answer", source_type="knowledge_base"))
+    # Incomplete turn: user message was submitted, but refresh occurred before stream completed
+    db.add(Message(chat_id=chat_id, role="user", content="Interrupted query mid-stream"))
+    db.commit()
+    db.close()
+
+    # Browser refreshes and reloads messages
+    resp = client.get(f"/api/chats/{chat_id}/messages", headers=headers)
+    assert resp.status_code == 200
+    msgs = resp.json()
+
+    # Prior messages preserved
+    assert len(msgs) == 4
+    assert msgs[0]["content"] == "Prior completed question"
+    assert msgs[1]["content"] == "Prior completed answer"
+    assert msgs[2]["content"] == "Interrupted query mid-stream"
+
+    # Interrupted state generated safely without crashing
+    assert msgs[3]["role"] == "assistant"
+    assert msgs[3]["source_type"] == "interrupted"
+    assert "interrupted" in msgs[3]["content"].lower()
+
+
+def test_no_duplicate_assistant_messages_on_save_partial_and_refresh():
+    """Scenario A & C: Stopping or disconnecting does not create duplicate assistant rows."""
+    user, token = create_user_and_token("duplicate_guard@clyptus.ai")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db = TestingSessionLocal()
+    chat = Chat(user_id=user.id, title="Clearing Chat")
+    db.add(chat)
+    db.commit()
+    chat_id = chat.id
+
+    db.add(Message(chat_id=chat_id, role="user", content="Explain FPL9 clearing"))
+    db.commit()
+    db.close()
+
+    # Frontend calls /save-partial when user clicks stop
+    resp1 = client.post(
+        f"/api/chats/{chat_id}/messages/save-partial",
+        headers=headers,
+        json={"content": "FPL9 contract account balance shows..."},
+    )
+    assert resp1.status_code == 200
+    saved_id = resp1.json()["message_id"]
+
+    # If stream disconnect handler or another save-partial fires with updated content
+    resp2 = client.post(
+        f"/api/chats/{chat_id}/messages/save-partial",
+        headers=headers,
+        json={"content": "FPL9 contract account balance shows all open items and clearing."},
+    )
+    assert resp2.status_code == 200
+    # Must update the existing interrupted message rather than creating duplicate
+    assert resp2.json()["status"] == "updated"
+    assert resp2.json()["message_id"] == saved_id
+
+    # On page refresh, messages query should only contain 1 user and 1 assistant message
+    get_resp = client.get(f"/api/chats/{chat_id}/messages", headers=headers)
+    assert get_resp.status_code == 200
+    msgs = get_resp.json()
+    assert len(msgs) == 2
+    assert msgs[0]["role"] == "user"
+    assert msgs[1]["role"] == "assistant"
+    assert msgs[1]["id"] == saved_id
+    assert msgs[1]["source_type"] == "interrupted"
+
+
+def test_reopening_conversation_restores_complete_history():
+    """Scenario C: Reopening chat restores all messages in chronological order."""
+    user, token = create_user_and_token("reopen_chat@clyptus.ai")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db = TestingSessionLocal()
+    chat = Chat(user_id=user.id, title="Chronological Chat")
+    db.add(chat)
+    db.commit()
+    chat_id = chat.id
+
+    for i in range(3):
+        db.add(Message(chat_id=chat_id, role="user", content=f"Question {i+1}"))
+        db.add(Message(chat_id=chat_id, role="assistant", content=f"Answer {i+1}", source_type="knowledge_base"))
+    db.commit()
+    db.close()
+
+    resp = client.get(f"/api/chats/{chat_id}/messages", headers=headers)
+    assert resp.status_code == 200
+    msgs = resp.json()
+    assert len(msgs) == 6
+    assert [m["content"] for m in msgs] == [
+        "Question 1", "Answer 1",
+        "Question 2", "Answer 2",
+        "Question 3", "Answer 3"
+    ]
 
 

@@ -65,6 +65,7 @@ export const ChatPage: React.FC = () => {
   const lastUserPromptRef = useRef<string>('');
   const justCreatedChatIdRef = useRef<string | null>(null);
   const currentStreamingChatIdRef = useRef<string | null>(null);
+  const currentChatIdRef = useRef<string | null>(conversationId || null);
 
   const isAutoScrollingRef = useRef(false);
 
@@ -101,6 +102,9 @@ export const ChatPage: React.FC = () => {
 
   // Load messages when conversationId changes
   useEffect(() => {
+    currentChatIdRef.current = conversationId || null;
+    let isCancelled = false;
+
     if (conversationId && (justCreatedChatIdRef.current === conversationId || currentStreamingChatIdRef.current === conversationId)) {
       // Don't reset state if this navigation was triggered by creating a chat for the current stream
       justCreatedChatIdRef.current = null;
@@ -120,17 +124,33 @@ export const ChatPage: React.FC = () => {
     if (conversationId) {
       apiGetMessages(conversationId)
         .then((msgs) => {
+          if (isCancelled || currentChatIdRef.current !== conversationId) return;
           console.log('[ChatPage] Loaded messages for chat:', conversationId, msgs.length);
           setMessages(msgs);
         })
         .catch((err) => {
+          if (isCancelled || currentChatIdRef.current !== conversationId) return;
           console.error('Failed to load messages for chat:', conversationId, err);
           setMessages([]);
         });
     } else {
       setMessages([]);
     }
+
+    return () => {
+      isCancelled = true;
+    };
   }, [conversationId]);
+
+  // Clean up any ongoing stream if ChatPage unmounts
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleStopGeneration = () => {
     if (abortControllerRef.current) {
@@ -230,17 +250,25 @@ export const ChatPage: React.FC = () => {
       content,
       {
         onStatus: (status: StreamStatus) => {
+          if (currentChatIdRef.current !== targetChatId) return;
           setStreamingStage(status.message);
         },
         onMetadata: (meta: StreamMetadata) => {
+          if (currentChatIdRef.current !== targetChatId) return;
           streamMetaRef = { ...streamMetaRef, ...meta };
           setStreamingMeta(streamMetaRef);
         },
         onToken: (token: string) => {
+          if (currentChatIdRef.current !== targetChatId) return;
           accumulatedText += token;
           setStreamingContent(accumulatedText);
         },
         onDone: (doneMeta: StreamMetadata, finalText?: string) => {
+          if (currentChatIdRef.current !== targetChatId) {
+            abortControllerRef.current = null;
+            currentStreamingChatIdRef.current = null;
+            return;
+          }
           setIsLoading(false);
           abortControllerRef.current = null;
           currentStreamingChatIdRef.current = null;
@@ -307,6 +335,11 @@ export const ChatPage: React.FC = () => {
           setStreamingMeta(null);
         },
         onError: (err: any) => {
+          if (currentChatIdRef.current !== targetChatId) {
+            abortControllerRef.current = null;
+            currentStreamingChatIdRef.current = null;
+            return;
+          }
           console.error('[ChatPage] Stream error:', err);
           setIsLoading(false);
           abortControllerRef.current = null;
@@ -403,7 +436,11 @@ export const ChatPage: React.FC = () => {
                   onEdit={msg.role === 'user' ? () => setEditDraft(msg.content) : undefined}
                   onRetry={
                     isLast && (msg.source_type === 'error' || msg.source_type === 'interrupted')
-                      ? () => handleSendMessage(lastUserPromptRef.current)
+                      ? () => {
+                          const prevUser = [...messages.slice(0, idx)].reverse().find((m) => m.role === 'user');
+                          const query = (prevUser && prevUser.content) || lastUserPromptRef.current;
+                          if (query) handleSendMessage(query);
+                        }
                       : undefined
                   }
                   onRegenerate={

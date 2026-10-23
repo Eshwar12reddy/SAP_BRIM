@@ -51,8 +51,27 @@ class AnswerPlanner:
         return "explanation"
 
     @staticmethod
-    def plan_answer(query: str, is_follow_up: bool = False, has_attachment: bool = False) -> Dict[str, Any]:
+    def plan_answer(query: str, is_follow_up: bool = False, has_attachment: bool = False, chat_history_context: str = "") -> Dict[str, Any]:
         q_lower = query.lower()
+
+        # 0. Specialized SAP BRIM Visual Step-by-Step Troubleshooting
+        try:
+            from backend.app.services.brim_troubleshooting_service import brim_troubleshooting_service
+            if brim_troubleshooting_service.is_brim_troubleshooting_query(query, chat_history_context=chat_history_context, has_attachment=has_attachment):
+                return {
+                    "question_type": "brim_visual_troubleshooting",
+                    "title": "SAP BRIM Visual Step-by-Step Troubleshooting",
+                    "instructions": (
+                        "SAP BRIM VISUAL STEP-BY-STEP TROUBLESHOOTING:\n"
+                        "Provide a visual consultant response guiding the user ONE STEP AT A TIME:\n"
+                        "1. Turn 1: 1-line diagnosis + overview image of BRIM flow + ONLY Step 1 with its simplified SAP GUI mockup image -> wait.\n"
+                        "2. Subsequent turns: Interpret user results + ONLY next step with simplified SAP GUI mockup image -> wait.\n"
+                        "3. Resolution: Verification mockup image + exact 3-line ticket summary (Root cause:, Resolution:, Verification:).\n"
+                        "4. All images returned as valid SVG code blocks (```svg)."
+                    )
+                }
+        except Exception:
+            pass
 
         # 0. Screenshot / Image Analysis
         if has_attachment or any(k in q_lower for k in ["screenshot", "screen shot", "attached image", "attached document", "what do i do next"]):
@@ -99,6 +118,14 @@ class AnswerPlanner:
                     "2. Logical Component Layers (Engagement, Order/Contract Management, Rating/Mediation, Invoicing, Subledger, G/L).\n"
                     "3. Interactive Rendered Mermaid Diagram:\n"
                     "   Provide a valid, complete diagram. Put ```mermaid alone on its own line, then the diagram, then ``` alone on its own line followed by a blank line, and never put any note or remark on a fence line. Adhere strictly to:\n"
+                    "   - Output only a valid Mermaid code block, nothing else inside it.\n"
+                    "   - Use ASCII characters only (plain hyphen \"-\", straight quotes). Never use U+2011, en/em dashes, or smart quotes.\n"
+                    "   - Node IDs must be simple (A, B, C or step1, step2), with no spaces or special characters.\n"
+                    "   - Wrap EVERY node label in double quotes: A[\"Label text\"].\n"
+                    "   - Use <br/> for line breaks inside labels. Never put a real newline inside a label.\n"
+                    "   - Never use double quotes inside a label. Use single quotes instead.\n"
+                    "   - Every `subgraph` must have a matching `end`.\n"
+                    "   - Keep diagrams under about 25 nodes. Finish the whole diagram.\n"
                     "   - Mermaid syntax: wrap every edge label and node label in double quotes, e.g. A -->|\"Create order (sync)\"| B and A[\"SAP SOM (Order Mgmt)\"]. Use <br/> for line breaks inside quotes. Never use unquoted parentheses, brackets or braces in labels.\n"
                     "   - Grouping systems into logical layers (`subgraph`) with clear component boundaries.\n"
                     "   - Labeled directional arrows with business data exchanged (e.g. Provider Contracts, CITs, BITs, Invoicing Docs).\n"
@@ -477,6 +504,23 @@ class AnswerPlanner:
                 has_attachment=has_attachment
             )
             is_guided_step = troubleshooting_state["is_active"]
+
+            # SAP BRIM Visual Step-by-Step Troubleshooting tracking
+            from backend.app.services.brim_troubleshooting_service import brim_troubleshooting_service
+            is_brim_troubleshooting = brim_troubleshooting_service.is_brim_troubleshooting_query(
+                query=query,
+                chat_history=chat_history,
+                chat_history_context=chat_history_context,
+                has_attachment=has_attachment
+            )
+            brim_troubleshooting_state = {}
+            if is_brim_troubleshooting:
+                brim_troubleshooting_state = brim_troubleshooting_service.extract_brim_troubleshooting_state(
+                    query=query,
+                    chat_history=chat_history,
+                    chat_history_context=chat_history_context,
+                    has_attachment=has_attachment
+                )
             
             return {
                 "wants_steps": wants_steps,
@@ -493,6 +537,8 @@ class AnswerPlanner:
                 "is_simple_question": is_simple_question,
                 "is_guided_step": is_guided_step,
                 "troubleshooting_state": troubleshooting_state,
+                "is_brim_troubleshooting": is_brim_troubleshooting,
+                "brim_troubleshooting_state": brim_troubleshooting_state,
             }
         except Exception:
             # Never fail a request on hint error
@@ -511,6 +557,8 @@ class AnswerPlanner:
                 "is_simple_question": False,
                 "is_guided_step": False,
                 "troubleshooting_state": {"is_active": False, "is_first_step": False, "current_step_num": 1, "last_step": 0, "is_resolved": False, "wants_full_list": False},
+                "is_brim_troubleshooting": False,
+                "brim_troubleshooting_state": {},
             }
 
 

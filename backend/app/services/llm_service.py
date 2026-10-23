@@ -289,6 +289,14 @@ Answer like a knowledgeable colleague. Match the length, depth, and format to wh
 
 6. MERMAID DIAGRAM RULES (WHEN A DIAGRAM OR FLOW IS REQUESTED):
 When including an architecture, workflow, or sequence diagram:
+- Output only a valid Mermaid code block, nothing else inside it.
+- Use ASCII characters only (plain hyphen "-", straight quotes). Never use U+2011, en/em dashes, or smart quotes.
+- Node IDs must be simple (A, B, C or step1, step2), with no spaces or special characters.
+- Wrap EVERY node label in double quotes: A["Label text"].
+- Use <br/> for line breaks inside labels. Never put a real newline inside a label.
+- Never use double quotes inside a label. Use single quotes instead.
+- Every `subgraph` must have a matching `end`.
+- Keep diagrams under about 25 nodes. Finish the whole diagram.
 - Always use a fenced code block with language identifier 'mermaid' (```mermaid ... ```).
 - Choose the appropriate diagram syntax based on the request:
   * For architecture landscapes, component relationships, or end-to-end data flows: use `flowchart TD` (top-to-bottom) or `flowchart LR` (left-to-right).
@@ -765,7 +773,9 @@ Requirements:
 
         q_type = plan.get("question_type", "conceptual")
 
-        if hint.get("is_guided_step"):
+        if hint.get("is_brim_troubleshooting"):
+            word_target = 350
+        elif hint.get("is_guided_step"):
             word_target = 180
         elif hint.get("wants_short") or (hint.get("standing_preference") == "short answer"):
             word_target = 100
@@ -780,7 +790,18 @@ Requirements:
 
         guidance_parts = []
 
-        if hint.get("is_guided_step"):
+        if hint.get("is_brim_troubleshooting"):
+            try:
+                from backend.app.services.brim_troubleshooting_service import brim_troubleshooting_service
+                b_state = hint.get("brim_troubleshooting_state") or {}
+                troubleshooting_instructions = brim_troubleshooting_service.get_troubleshooting_system_instructions(
+                    state=b_state,
+                    query=query
+                )
+                guidance_parts.append(troubleshooting_instructions)
+            except Exception:
+                pass
+        elif hint.get("is_guided_step"):
             state = hint.get("troubleshooting_state") or {}
             step_num = state.get("current_step_num", 1)
             is_first = state.get("is_first_step", True)
@@ -839,6 +860,14 @@ Requirements:
                 "FORMAT REQUIREMENT (User requested diagram / architecture / workflow / sequence):\n"
                 f"You MUST include an interactive, valid Mermaid diagram in a fenced code block (```mermaid) using `{diag_syntax}` accompanied by a clear explanation.\n"
                 "Mermaid Diagram Syntax Rules:\n"
+                "- Output only a valid Mermaid code block, nothing else inside it.\n"
+                "- Use ASCII characters only (plain hyphen \"-\", straight quotes). Never use U+2011, en/em dashes, or smart quotes.\n"
+                "- Node IDs must be simple (A, B, C or step1, step2), with no spaces or special characters.\n"
+                "- Wrap EVERY node label in double quotes: A[\"Label text\"].\n"
+                "- Use <br/> for line breaks inside labels. Never put a real newline inside a label.\n"
+                "- Never use double quotes inside a label. Use single quotes instead.\n"
+                "- Every `subgraph` must have a matching `end`.\n"
+                "- Keep diagrams under about 25 nodes. Finish the whole diagram.\n"
                 "1. Always wrap ALL node labels and ALL edge labels in double quotes (e.g. A[\"Component (Detail)\"] -->|\"Data Flow\"| B[\"Next Component\"]).\n"
                 "2. Group systems into logical layers using `subgraph` (e.g. Engagement, Order/Contract Mgmt, Rating/Mediation, Invoicing, FI-CA, G/L Finance).\n"
                 "3. Label arrows with the exact business objects exchanged (e.g. \"Subscription Order\", \"Provider Contract\", \"Rated Usage / BITs\", \"Invoicing Documents\", \"G/L Transfer via Recon Keys\").\n"
@@ -850,7 +879,7 @@ Requirements:
                 "9. After the diagram add a short section titled Diagram sources and evidence: one line per solid arrow with its source document and page, then one line listing the dashed connections as general SAP knowledge not confirmed by the retrieved sources."
             )
 
-        if not hint.get("is_guided_step"):
+        if not hint.get("is_guided_step") and not hint.get("is_brim_troubleshooting"):
             if hint.get("wants_steps"):
                 guidance_parts.append(
                     "FORMAT REQUIREMENT (User requested step-by-step):\n"
@@ -1374,7 +1403,7 @@ Requirements:
         evidence_context = self._format_evidence_context(evidence, source_type) if evidence else ""
 
         has_attachment = kwargs.get("has_attachment", False)
-        plan = answer_planner.plan_answer(query, has_attachment=has_attachment)
+        plan = answer_planner.plan_answer(query, has_attachment=has_attachment, chat_history_context=chat_history_context)
         format_guidance, structure_guidance, word_target = self._build_adaptive_format_section(
             query=query,
             plan=plan,
@@ -1901,7 +1930,7 @@ Review and refine the answer to ensure rigorous alignment with the verified evid
             return
 
         evidence_context = self._format_evidence_context(evidence, source_type) if evidence else ""
-        plan = answer_planner.plan_answer(query, has_attachment=has_attachment)
+        plan = answer_planner.plan_answer(query, has_attachment=has_attachment, chat_history_context=chat_history_context)
         format_guidance, structure_guidance, word_target = self._build_adaptive_format_section(
             query=query,
             plan=plan,

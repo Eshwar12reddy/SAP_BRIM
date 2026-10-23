@@ -322,6 +322,7 @@ export const apiStreamMessage = async (
 ): Promise<void> => {
   const requestStartedAt = performance.now();
   let isCompleted = false;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined = undefined;
   try {
     const requestId = crypto.randomUUID();
     let firstAnswerTokenAt: number | null = null;
@@ -340,7 +341,7 @@ export const apiStreamMessage = async (
       throw new Error(`Failed to stream message: ${resp.statusText}`);
     }
 
-    const reader = resp.body?.getReader();
+    reader = resp.body?.getReader();
     if (!reader) throw new Error('ReadableStream not supported');
 
     const decoder = new TextDecoder();
@@ -408,6 +409,9 @@ export const apiStreamMessage = async (
     };
 
     while (true) {
+      if (signal?.aborted) {
+        break;
+      }
       const { done, value } = await reader.read();
       if (done) {
         if (buffer.trim()) {
@@ -427,7 +431,9 @@ export const apiStreamMessage = async (
       }
     }
 
-    finishStream();
+    if (!signal?.aborted) {
+      finishStream();
+    }
   } catch (err: any) {
     if (signal?.aborted || err?.name === 'AbortError') {
       console.log('Streaming aborted by user.');
@@ -437,6 +443,12 @@ export const apiStreamMessage = async (
       callbacks.onError?.(err);
     } else {
       console.warn('Stream connection closed after completion:', err);
+    }
+  } finally {
+    if (reader) {
+      try {
+        reader.releaseLock();
+      } catch {}
     }
   }
 };
@@ -642,5 +654,21 @@ export const apiUploadChatAttachment = async (
   return resp.json();
 };
 
+export const apiRepairMermaid = async (chart: string, error: string): Promise<string> => {
+  const resp = await fetch(`${API_BASE_URL}/rag/repair-mermaid`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ chart, error }),
+  });
 
+  if (!resp.ok) {
+    const errorData = await resp.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Mermaid repair failed with status ${resp.status}`);
+  }
 
+  const data = await resp.json();
+  return data.repaired || chart;
+};

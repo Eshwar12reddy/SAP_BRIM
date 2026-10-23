@@ -1,0 +1,1 @@
+SAP SOM Provider Contract configuration notes: SPRO path: Cross-Industry Solutions.

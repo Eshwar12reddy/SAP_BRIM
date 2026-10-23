@@ -25,6 +25,7 @@ import iconOnly from '../../assets/clyptusap-icon.png';
 import { CitationModal } from './CitationModal';
 import { VisualCard } from './VisualCard';
 import { MermaidViewer } from './MermaidViewer';
+import { SapGuiSvgViewer } from './SapGuiSvgViewer';
 import { apiSubmitMessageFeedback } from '../../services/api';
 
 const stripAnswerCitations = (content: string): string => {
@@ -69,7 +70,7 @@ const repairMarkdownFences = (content: string): string => {
 
   // 2. Prevent unclosed code blocks from swallowing subsequent headings/explanations
   repaired = repaired.replace(
-    /(```mermaid[\s\S]*?)(?=\n#{1,6}\s)/gi,
+    /(```(?:mermaid|svg|sap-gui)[\s\S]*?)(?=\n#{1,6}\s)/gi,
     (match) => {
       const fenceCount = (match.match(/```/g) || []).length;
       if (fenceCount === 1) {
@@ -503,6 +504,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                           );
                         }
                         return <MermaidViewer chart={codeString} isStreaming={isStreaming} />;
+                      }
+
+                      // Intercept SAP GUI SVG and Flow Diagrams
+                      if (
+                        lang === 'svg' ||
+                        lang === 'sap-gui' ||
+                        codeString.trim().startsWith('<svg') ||
+                        (lang === 'json' && codeString.includes('"tcode"') && codeString.includes('"step"'))
+                      ) {
+                        return <SapGuiSvgViewer rawContent={codeString} isStreaming={isStreaming} />;
                       }
 
                       return isInline ? (
