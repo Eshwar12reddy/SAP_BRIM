@@ -13,7 +13,7 @@ export function ProtectedRoute({
   if (loading) {
     return (
       <div className="route-loading" role="status">
-        Connecting to Clyptusap.ai...
+        Connecting to Clyptus.Ai...
       </div>
     );
   }

@@ -19,7 +19,7 @@ export const FeaturesPage: React.FC = () => {
     <>
       <PageMeta
         title="Features"
-        description="Explore SAP-focused answers, retrieval and BRIM knowledge with Clyptusap.ai."
+        description="Explore SAP-focused answers, retrieval and BRIM knowledge with Clyptus.Ai."
       />
       <PublicNav />
       <main className="inner-page">
@@ -30,7 +30,7 @@ export const FeaturesPage: React.FC = () => {
             <span>deserve verified SAP context.</span>
           </h1>
           <p>
-            Clyptusap.ai retrieves relevant information from indexed SAP knowledge before generating an answer, backed by streaming citations and cross-encoder reranking.
+            Clyptus.Ai retrieves relevant information from indexed SAP knowledge before generating an answer, backed by streaming citations and multi-signal reranking.
           </p>
           <Link className="text-link" to="/how-it-works">
             See how it works <ArrowRight size={16} />
@@ -62,7 +62,7 @@ export const FeaturesPage: React.FC = () => {
           <span className="eyebrow">SAP KNOWLEDGE, IN CONTEXT</span>
           <h2>Have an SAP question?</h2>
           <Link className="button button-dark" to="/login">
-            Ask Clyptusap.ai <ArrowRight size={16} />
+            Ask Clyptus.Ai <ArrowRight size={16} />
           </Link>
         </section>
       </main>

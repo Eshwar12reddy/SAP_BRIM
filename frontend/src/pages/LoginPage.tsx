@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { BrandLogo } from '../components/navbar/BrandLogo';
 import { PageMeta } from '../components/ui/PageMeta';
 import { useAuth } from '../context/AuthContext';
+import { GoogleAuthSection } from '../components/auth/GoogleAuthSection';
 
 export const LoginPage: React.FC = () => {
   const { user, login, register, guestLogin } = useAuth();
@@ -70,7 +71,7 @@ export const LoginPage: React.FC = () => {
     <>
       <PageMeta
         title="Sign In"
-        description="Continue to your Clyptusap.ai knowledge workspace."
+        description="Continue to your Clyptus.Ai knowledge workspace."
       />
       <main className="login-layout">
         <section className="login-panel">
@@ -86,7 +87,7 @@ export const LoginPage: React.FC = () => {
             <span className="eyebrow">SAP + BRIM KNOWLEDGE ASSISTANT</span>
             <h1>
               Welcome to<br />
-              Clyptusap.ai
+              Clyptus.Ai
             </h1>
             <p>Your intelligent SAP knowledge workspace</p>
 
@@ -122,6 +123,8 @@ export const LoginPage: React.FC = () => {
                 <span>{error}</span>
               </div>
             )}
+
+            <GoogleAuthSection />
 
             <form onSubmit={handleSubmit} className="space-y-3 text-left">
               {mode === 'register' && (
@@ -217,7 +220,7 @@ export const LoginPage: React.FC = () => {
 
           <div className="login-legal">
             <span>Powered by sentence-transformers &amp; cross-encoder reranking.</span>
-            <Link to="/features">Explore Clyptusap.ai</Link>
+            <Link to="/features">Explore Clyptus.Ai</Link>
           </div>
         </section>
       </main>

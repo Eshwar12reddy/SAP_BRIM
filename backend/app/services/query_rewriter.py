@@ -3,6 +3,7 @@ import logging
 from typing import List, Dict, Any, Tuple
 from groq import Groq
 from backend.app.config import settings
+from backend.app.services.sap_classifier import sap_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,11 @@ class QueryRewriter:
         self.client = None
         if self.api_key:
             try:
-                self.client = Groq(api_key=self.api_key)
+                self.client = Groq(
+                    api_key=self.api_key,
+                    timeout=settings.QUERY_REWRITE_TIMEOUT_SECONDS,
+                    max_retries=0,
+                )
             except Exception as e:
                 logger.warning(f"Could not initialize Groq client for query rewriter: {e}")
                 self.client = None
@@ -72,6 +77,14 @@ class QueryRewriter:
             if re.search(pat, q, re.IGNORECASE) and not has_sap:
                 return False, "unrelated_standalone"
 
+        # An operational question can continue an established SAP scenario
+        # without repeating product names (for example, "how do I resume it?").
+        if (
+            sap_classifier.history_identifies_sap(chat_history)
+            and sap_classifier.is_contextual_sap_query(q)
+        ):
+            return True, "contextual_sap_scenario"
+
         # 3. Short contextual query triggers
         short_followup_triggers = [
             r"^can you explain in detail",
@@ -96,7 +109,12 @@ class QueryRewriter:
             r"^what are (the )?benefits",
             r"^what are (the )?limitations",
             r"^what are its benefits",
-            r"^what are its components"
+            r"^what are its components",
+            r"^explain (the )?(first|second|third|fourth|fifth|last|next|previous) step",
+            r"^explain step \d+",
+            r"^elaborate on (the )?(first|second|third|fourth|fifth|last|next|previous) step",
+            r"^what about (the )?(first|second|third|fourth|fifth|last|next|previous) (step|one)",
+            r"^what is (the )?(first|second|third|fourth|fifth|last|next|previous) step"
         ]
         for trigger in short_followup_triggers:
             if re.search(trigger, q, re.IGNORECASE):
@@ -128,7 +146,8 @@ class QueryRewriter:
             "steps", "step", "example", "prerequisites", "prerequisite", "transactions",
             "transaction", "tcodes", "tcode", "tables", "table", "process", "detail",
             "details", "configuration", "configured", "integrate", "integration", "benefits",
-            "limitations", "difference", "compare"
+            "limitations", "difference", "compare", "first", "second", "third", "fourth",
+            "fifth", "last", "previous", "earlier", "one", "two", "three"
         }
         word_tokens = set(re.findall(r"\b\w+\b", q))
         if len(q.split()) <= 5 and not has_sap and (word_tokens & continuation_keywords):
@@ -219,6 +238,12 @@ class QueryRewriter:
         if "important transactions" in q_lower:
             return f"What are the important transactions related to {topic}?"
 
+        # "explain the second step" / "explain step 2"
+        step_match = re.search(r"explain (the )?(\w+) step|explain step (\d+)", q_lower)
+        if step_match:
+            step_name = step_match.group(2) or step_match.group(3)
+            return f"Explain the {step_name} step for {topic}."
+
         # Generic pronoun replacement
         replaced = re.sub(r"\bit\b", topic, cc_expanded, flags=re.IGNORECASE)
         replaced = re.sub(r"\bthis\b", topic, replaced, flags=re.IGNORECASE)
@@ -258,7 +283,7 @@ class QueryRewriter:
 
         topic = self.extract_recent_topic(chat_history)
 
-        # Attempt high-precision LLM rewrite via Groq
+        # Keep contextual rewriting bounded so it cannot consume the answer-generation budget.
         if self.client:
             try:
                 system_prompt = (
@@ -279,32 +304,32 @@ class QueryRewriter:
                 ])
                 user_msg = f"Conversation History:\n{hist_text}\n\nLatest User Query: {cleaned_query}\n\nStandalone Question:"
 
-                candidate_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
-                for model in candidate_models:
-                    try:
-                        res = self.client.chat.completions.create(
-                            model=model,
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_msg}
-                            ],
-                            temperature=0.0,
-                            max_tokens=100
-                        )
-                        rewritten = res.choices[0].message.content.strip().strip('"\'')
-                        if rewritten and len(rewritten) > 3:
-                            return {
-                                "original_query": cleaned_query,
-                                "is_follow_up": True,
-                                "conversation_topic": topic,
-                                "resolved_query": rewritten,
-                                "reason": f"llm_rewriter_{model}"
-                            }
-                    except Exception as llm_err:
-                        logger.warning(f"Model '{model}' query rewriting error: {llm_err}")
-                        continue
+                model = "qwen/qwen3.8-27b"
+                res = self.client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg}
+                    ],
+                    temperature=0.0,
+                    max_tokens=100
+                )
+                rewritten = res.choices[0].message.content.strip().strip('"\'')
+                if rewritten and len(rewritten) > 3:
+                    if (
+                        reason == "contextual_sap_scenario"
+                        and not sap_classifier._has_explicit_sap_signal(rewritten)
+                    ):
+                        rewritten = f"{rewritten} regarding {topic}"
+                    return {
+                        "original_query": cleaned_query,
+                        "is_follow_up": True,
+                        "conversation_topic": topic,
+                        "resolved_query": rewritten,
+                        "reason": f"llm_rewriter_{model}"
+                    }
             except Exception as e:
-                logger.warning(f"LLM query rewriter error: {e}")
+                logger.warning("LLM query rewriter failed (%s); using heuristic rewrite.", type(e).__name__)
 
         # Fallback to heuristic rewriter
         heuristic_resolved = self.rewrite_heuristic(cleaned_query, topic)

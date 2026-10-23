@@ -12,15 +12,21 @@ class GroundingEvaluator:
         is_abstention_case: bool = False,
         is_hallucination_trap: bool = False
     ) -> Dict[str, float]:
-        answer = rag_response.get("answer", "")
-        grounding_score = float(rag_response.get("grounding_score", 0.0))
+        answer = rag_response.get("answer", "") or ""
+        raw_grounding = rag_response.get("grounding_score")
+        try:
+            grounding_score = float(raw_grounding) if raw_grounding is not None else 0.0
+        except (TypeError, ValueError):
+            grounding_score = 0.0
         verification_status = rag_response.get("verification_status", "unverified")
+
 
         # 1. Abstention Quality
         if is_abstention_case or is_hallucination_trap:
             # Did the model correctly abstain or identify limitation instead of fabricating?
             is_refusal = (
                 verification_status == "abstention"
+                or "could not verify" in answer.lower()
                 or "unable to" in answer.lower()
                 or "does not exist" in answer.lower()
                 or "not standard" in answer.lower()

@@ -2,7 +2,7 @@ import React from 'react';
 import { Plus } from 'lucide-react';
 
 const faqs = [
-  ['What is Clyptusap.ai?', 'Clyptusap.ai is an AI-powered SAP knowledge assistant. It retrieves relevant indexed knowledge before generating an answer, with a dedicated focus on SAP BRIM.'],
+  ['What is Clyptus.Ai?', 'Clyptus.Ai is an AI-powered SAP knowledge assistant. It retrieves relevant indexed knowledge before generating an answer, with a dedicated focus on SAP BRIM.'],
   ['What does “RAG-powered” mean?', 'Retrieval-Augmented Generation retrieves relevant SAP knowledge and provides it as context to an AI model before it generates an answer.'],
   ['Which SAP BRIM areas does it support?', 'Its BRIM focus includes Convergent Mediation (CM), Convergent Charging (CC), Convergent Invoicing (CI), FI-CA, and Subscription Order Management (SOM).'],
   ['Can I see sources and confidence?', 'Supporting sources and confidence or grounding information are shown with every response. Citations link directly to verified documentation chunks.'],

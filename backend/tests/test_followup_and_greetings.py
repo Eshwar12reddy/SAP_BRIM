@@ -19,7 +19,7 @@ def test_sentimental_and_greetings_rejected():
     for g in greetings:
         is_sap, msg = sap_classifier.classify(g)
         assert not is_sap, f"Greeting '{g}' should be rejected"
-        assert "I can only help with SAP and SAP-related topics." in msg
+        assert "SAP" in msg and ("specialize" in msg.lower() or "only help" in msg.lower())
 
 def test_greetings_not_treated_as_followup_even_with_history():
     history = [
@@ -67,3 +67,18 @@ def test_unrelated_questions_rejected_even_with_history():
         assert not cand, f"'{q}' should not be a follow-up"
         is_sap, _ = sap_classifier.classify(q)
         assert not is_sap, f"'{q}' should be rejected by classifier"
+
+
+def test_implicit_sap_scenario_followup_is_rewritten_with_context(monkeypatch):
+    monkeypatch.setattr(query_rewriter, "client", None)
+    history = [
+        {"role": "user", "content": "A SAP Convergent Invoicing run stopped while processing billable items."},
+        {"role": "assistant", "content": "The SAP CI run needs investigation."},
+    ]
+    query = "How should I investigate the failure and resume processing safely?"
+    candidate, reason = query_rewriter.is_follow_up_candidate(query, history)
+    assert candidate
+    assert reason == "contextual_sap_scenario"
+
+    resolution = query_rewriter.resolve_query(query, history)
+    assert sap_classifier.classify(resolution["resolved_query"], chat_history=history)[0]

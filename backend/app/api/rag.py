@@ -89,7 +89,7 @@ def query_rag(
             role="assistant",
             content=result["answer"],
             source_type=result["source_type"],
-            grounding_score=result["grounding_score"]
+            grounding_score=result.get("grounding_score")
         )
 
         db.add(assistant_message)
@@ -105,13 +105,24 @@ def query_rag(
     return RAGQueryResponse(
         answer=result["answer"],
         source_type=result["source_type"],
-        grounding_score=result["grounding_score"],
+        grounding_score=result.get("grounding_score"),
+        kb_grounding_score=result.get("kb_grounding_score"),
+        web_grounding_score=result.get("web_grounding_score"),
+        grounding_status=result.get("grounding_status"),
+        grounding_method=result.get("grounding_method"),
+        grounding_summary=result.get("grounding_summary"),
+        grounding_claims=result.get("grounding_claims", []),
         is_in_rag_pipeline=result.get("is_in_rag_pipeline"),
         kb_score=result.get("kb_score"),
         web_score=result.get("web_score"),
         winning_score=result.get("winning_score"),
         selected_source=result.get("selected_source"),
-        verification_status=result.get("verification_status", "verified"),
+        kb_relevance_score=result.get("kb_relevance_score"),
+        kb_threshold=result.get("kb_threshold", 75),
+        fallback_reason=result.get("fallback_reason"),
+        stage_timings_ms=result.get("stage_timings_ms", {}),
+        web_search_used=result.get("web_search_used", False),
+        verification_status=result.get("verification_status"),
         internal_evidence_confidence=result.get("internal_evidence_confidence"),
         selected_evidence_quality=result.get("selected_evidence_quality"),
         external_search_used=result.get("external_search_used", False),
@@ -172,7 +183,7 @@ def query_rag_stream(
                     role="assistant",
                     content=full_answer,
                     source_type=event.get("source_type", "knowledge_base"),
-                    grounding_score=event.get("grounding_score", 0.0)
+                    grounding_score=event.get("grounding_score")
                 )
                 db.add(assistant_message)
                 chat.updated_at = datetime.now(timezone.utc)

@@ -12,24 +12,24 @@ interface BrandLogoProps {
 export const BrandLogo: React.FC<BrandLogoProps> = ({ compact = false, light = false }) => {
   if (compact) {
     return (
-      <Link className="brand inline-flex items-center" to="/" aria-label="Clyptusap.ai home">
-        <img className="h-8 w-8 object-contain drop-shadow-sm" src={iconOnly} alt="Clyptusap.ai" />
+      <Link className="brand inline-flex items-center" to="/" aria-label="Clyptus.Ai home">
+        <img className="h-8 w-8 object-contain drop-shadow-sm" src={iconOnly} alt="Clyptus.Ai" />
       </Link>
     );
   }
 
   return (
-    <Link className={`brand inline-flex items-center gap-2.5 ${light ? 'brand-light' : ''}`} to="/" aria-label="Clyptusap.ai home">
+    <Link className={`brand inline-flex items-center gap-2.5 ${light ? 'brand-light' : ''}`} to="/" aria-label="Clyptus.Ai home">
       {/* On dark surfaces show white text version; on light surfaces show dark text version */}
       <img
-        className="h-8 w-auto object-contain dark:hidden"
+        className={`h-8 w-auto object-contain ${light ? 'hidden' : 'dark:hidden'}`}
         src={fullLogoDark}
-        alt="Clyptusap.ai"
+        alt="Clyptus.Ai"
       />
       <img
-        className="h-8 w-auto object-contain hidden dark:block"
+        className={`h-8 w-auto object-contain ${light ? 'block' : 'hidden dark:block'}`}
         src={fullLogoWhite}
-        alt="Clyptusap.ai"
+        alt="Clyptus.Ai"
       />
     </Link>
   );

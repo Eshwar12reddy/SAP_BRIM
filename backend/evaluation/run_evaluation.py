@@ -124,10 +124,11 @@ def run_benchmark(sample_size: int = 35) -> Dict[str, Any]:
             elif should_trigger and not actual_trigger:
                 tavily_fn += 1
 
-            # 7. Answer Sufficiency (passes verification or correctly refused)
+            # 7. Answer Sufficiency (passes 90% verification or correctly abstained)
             ans_len = len(rag_resp.get("answer", ""))
-            sufficient = 1.0 if (gr_metrics["answer_grounding_score"] >= 0.80 or gr_metrics["abstention_quality"] == 1.0) and ans_len > 30 else 0.5
+            sufficient = 1.0 if (gr_metrics["answer_grounding_score"] >= 0.90 or (is_abstention and gr_metrics["abstention_quality"] == 1.0) or (is_trap and gr_metrics["abstention_quality"] == 1.0)) and ans_len > 30 else (1.0 if rag_resp.get("source_type") == "insufficient" and (is_abstention or is_trap) else 0.0)
             sufficiency_list.append(sufficient)
+
 
             evaluated_cases.append({
                 "id": case.get("id"),

@@ -1,0 +1,97 @@
+/* Right-side floating scroll buttons in chat area */
+.right-scroll-controls {
+  position: absolute;
+  right: 20px;
+  bottom: 86px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 35;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .right-scroll-controls {
+    right: 12px;
+    bottom: 80px;
+  }
+}
+
+.right-scroll-btn {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  padding: 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px) scale(0.92);
+}
+
+.dark .right-scroll-btn {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #38bdf8;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+.right-scroll-btn.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+/* Ensure minimum 40px touch / click target */
+.right-scroll-btn::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: -4px;
+  right: -4px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 50%;
+}
+
+.right-scroll-btn:hover {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(56, 189, 248, 0.35);
+  transform: translateY(-2px);
+}
+
+.dark .right-scroll-btn:hover {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.45);
+}
+
+.right-scroll-btn:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.right-scroll-btn:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .right-scroll-btn {
+    transition: none;
+    transform: none;
+  }
+}

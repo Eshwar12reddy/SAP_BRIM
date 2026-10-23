@@ -81,6 +81,11 @@ export const CitationModal: React.FC<CitationModalProps> = ({
                         <Hash className="w-3 h-3" />
                         Page {c.page}
                       </span>
+                      {c.chunk_id && (
+                        <span className="inline-flex items-center text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                          {c.chunk_id}
+                        </span>
+                      )}
                       {c.score > 0 && (
                         <div className="flex items-center gap-2">
                           <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -91,7 +96,7 @@ export const CitationModal: React.FC<CitationModalProps> = ({
                           </div>
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-950/50 px-2 py-0.5 rounded-md border border-orange-300 dark:border-orange-500/30">
                             <Award className="w-3 h-3 text-orange-500 dark:text-orange-400" />
-                            {Math.round(c.score * 100)}% match
+                            {Math.round(c.score * 100)}% retrieval score
                           </span>
                         </div>
                       )}
@@ -107,7 +112,7 @@ export const CitationModal: React.FC<CitationModalProps> = ({
                   {/* Excerpt */}
                   <div>
                     <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-                      Verified Excerpt
+                      Evidence Excerpt
                     </span>
                     <div className="p-3 bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/80 rounded-lg text-xs leading-relaxed text-slate-700 dark:text-slate-300 font-mono">
                       "{c.snippet}"

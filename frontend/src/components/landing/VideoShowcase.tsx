@@ -38,7 +38,7 @@ export const VideoShowcase: React.FC = () => {
             </div>
           </div>
         </div>
-        <p className="video-placeholder-caption">Interactive Clyptusap.ai workspace</p>
+        <p className="video-placeholder-caption">Interactive Clyptus.Ai workspace</p>
       </div>
       <div className="showcase-caption">
         <span className="live-dot" /> SAP + BRIM knowledge in action

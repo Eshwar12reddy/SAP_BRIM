@@ -1,6 +1,7 @@
+
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg15
     container_name: sap_assistant_postgres
     restart: always
     environment:
@@ -14,3 +15,6 @@ services:
 
 volumes:
   pgdata:
+    external: true
+    name: docker_clyptus-postgres-data
+

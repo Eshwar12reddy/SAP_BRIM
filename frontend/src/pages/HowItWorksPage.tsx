@@ -8,7 +8,7 @@ import { PageMeta } from '../components/ui/PageMeta';
 const steps = [
   [MessageCircle, 'Ask', 'Ask your SAP or BRIM question naturally, whether regarding a transaction code, configuration path, process flow, or customizing table.', 'No special syntax required.'],
   [Search, 'Retrieve', 'Dense vector similarity (MiniLM-L6) and BM25 lexical search run in parallel over pre-indexed document chunks.', 'Hybrid dense & lexical retrieval.'],
-  [Boxes, 'Context & Rerank', 'A cross-encoder model scores candidate chunks, elevating the most contextually relevant technical excerpts.', 'Precision reranking.'],
+  [Boxes, 'Context & Rerank', 'A lightweight heuristic reranker prioritizes chunks using retrieval score, heading, phrase, and identifier matches.', 'Heuristic reranking.'],
   [Sparkles, 'Generate & Stream', 'The LLM streams tokens via SSE with ChatGPT-style thinking and bouncing animation indicators.', 'Real-time interactive streaming.'],
   [ShieldCheck, 'Ground & Cite', 'The response is checked for hallucination, assigned a grounding score, and annotated with exact document sources.', 'Enterprise verification.'],
 ] as const;
@@ -18,7 +18,7 @@ export const HowItWorksPage: React.FC = () => {
     <>
       <PageMeta
         title="How It Works"
-        description="Learn how Clyptusap.ai retrieves SAP knowledge to generate grounded answers."
+        description="Learn how Clyptus.Ai retrieves SAP knowledge to generate grounded answers."
       />
       <PublicNav />
       <main className="inner-page">
@@ -29,7 +29,7 @@ export const HowItWorksPage: React.FC = () => {
             to <span>grounded answer.</span>
           </h1>
           <p>
-            Clyptusap.ai searches its indexed SAP knowledge base for relevant technical documentation, uses that context to generate answers, and presents verifiable sources.
+            Clyptus.Ai searches its indexed SAP knowledge base for relevant technical documentation, uses that context to generate answers, and presents verifiable sources.
           </p>
           <a className="scroll-hint inner-scroll" href="#process">
             FOLLOW THE ARCHITECTURE <ArrowDown size={14} />
@@ -64,7 +64,7 @@ export const HowItWorksPage: React.FC = () => {
           <span className="eyebrow">READY TO TEST?</span>
           <h2>Experience the SAP Knowledge Assistant</h2>
           <Link className="button button-dark" to="/login">
-            Ask Clyptusap.ai <ArrowUpRight size={16} />
+            Ask Clyptus.Ai <ArrowUpRight size={16} />
           </Link>
         </section>
       </main>

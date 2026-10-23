@@ -52,6 +52,12 @@ export const ProfilePage: React.FC = () => {
         )}
         <div className="profile-field">
           <span>
+            <ShieldCheck size={15} /> Role
+          </span>
+          <strong>{user?.role || (user?.is_admin ? 'Admin' : (user?.isGuest ? 'Guest' : 'SAP BRIM Consultant'))}</strong>
+        </div>
+        <div className="profile-field">
+          <span>
             <ShieldCheck size={15} /> Security Model
           </span>
           <strong>

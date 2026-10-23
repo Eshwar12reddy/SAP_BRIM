@@ -103,27 +103,24 @@ flowchart TD
         SAPClass -->|Non-SAP Topic| Refusal[Refusal: 'I can only help with SAP...']
     end
     
-    subgraph Dual-Stream Retrieval
+    subgraph Retrieval and Strict Source Routing
         SAPClass -->|SAP Verified| SearchKB[retrieval_service.hybrid_search]
-        SearchKB -->|pgvector / NumPy| KBChunks[(Top 50 Chunks from DB)]
-        SAPClass -->|If Web Enabled| WebSearch[web_search_service.search_sap_authoritative]
-        WebSearch -->|Tavily help.sap.com| WebSnippets[Live SAP Help Snippets]
+        SearchKB --> KBChunks[Hybrid-ranked KB candidates]
+        KBChunks --> Relevance[0-100 relevance rubric]
+        Relevance -->|Score >= 75| KBOnly[Use relevant KB passages only]
+        Relevance -->|Score < 75 or retrieval fails| WebSearch[Search approved SAP domains]
+        WebSearch --> WebEval[Extract and evaluate web page content]
+        WebEval -->|Relevant authoritative results| WebOnly[Use web passages only]
+        WebEval -->|No sufficient results| Abstain[Transparent insufficient-evidence answer]
     end
-    
-    subgraph Multi-Factor Reranking & Score Comparison
-        KBChunks --> Rerank[reranking_service.compare_and_select]
-        WebSnippets --> Rerank
-        Rerank --> ScoreComp{Compare: KB Score vs Web Score}
+
+    subgraph Answer and Verification
+        KBOnly --> LLM[llm_service.generate_answer]
+        WebOnly --> LLM
+        LLM --> Grounding[grounding_service.verify_answer]
+        Grounding -->|Unsupported claims remain| Abstain
     end
-    
-    subgraph Evidence Synthesis & Guardrail
-        ScoreComp -->|KB Score >= Web Score & In Pipeline| TopKB[Select Top 8 KB Chunks]
-        ScoreComp -->|Web Score > KB Score or KB Insufficient| TopWeb[Select Top 3 Web Snippets]
-        TopKB --> LLM[llm_service.generate_answer - Groq/OpenAI]
-        TopWeb --> LLM
-        LLM --> Grounding[grounding_service.evaluate_grounding]
-    end
-    
+
     Grounding --> PersistMsg[Persist Assistant Message with Grounding Score & Citations]
     PersistMsg --> Response[Return JSON to React UI]
     Response --> UI[Render Markdown, Citations Modal, Grounding Badge, Source Indicator]
@@ -155,17 +152,18 @@ flowchart TD
   - Term-frequency lexical matcher boosting SAP technical acronyms and transaction codes.
   - Result: `Hybrid Score = 0.60 * Vector Score + 0.40 * Keyword Score`.
 
-### 4.4 Objective Multi-Factor Reranker (`backend/app/services/reranking_service.py`)
+### 4.4 Heuristic Reranker and Source Router (`backend/app/services/reranking_service.py`, `evidence_selection_service.py`)
 - **Section & Heading Boost**: Chunks whose document section titles match query tokens receive up to +0.15 score bonus.
 - **Exact N-Gram Match**: Multi-word phrase matches in text receive up to +0.12 boost.
 - **T-Code Exact Match**: Direct matches for technical transaction codes receive up to +0.10 boost.
-- **Entity Validation Filter**: Prevents hallucinated cross-matches for distinct cloud products (Ariba, Concur, Fieldglass) if the chunk text doesn't contain that product.
-- **Score Competition**: Objectively compares `KB_Score` against `Web_Score`. If the question is missing from the local knowledge base, the system dynamically switches to authoritative web documentation.
+- **Retrieval reranking**: Adds section, phrase, and requested transaction-code match boosts to the hybrid retrieval score. This is a heuristic reranker, not a cross-encoder model.
+- **KB relevance rubric**: Uses 50% of the best raw hybrid score, 35% exact query-term coverage across the top four chunks, and 15% exact requested technical-identifier coverage (identifier weight moves to term coverage when none was requested). A hard gate caps the score below 75 when hybrid score is under 65, term coverage is under 60%, or a requested identifier is absent. The score is a routing rubric, not a factual probability.
+- **Strict routing**: Scores of 75 or higher select KB evidence only. Lower scores and retrieval failures select approved SAP web evidence only. Low-scoring KB content is excluded from generation and repair prompts. No source mixing occurs.
 
 ### 4.5 Authoritative Web Fallback (`backend/app/services/web_search_service.py`)
 - **Real-Time Tavily Search**: Executes targeted queries against live SAP web assets.
-- **Domain Whitelisting**: Strict acceptance only for `help.sap.com`, `community.sap.com`, and `blogs.sap.com`.
-- **Snippet Cleaning**: Strips HTML tags, trims noise, and extracts canonical URLs for transparency.
+- **Domain Whitelisting**: Accepts SAP Help, SAP Learning, SAP Community, SAP Blogs, and SAP-owned domains using parsed hostnames.
+- **Page Extraction**: Uses extracted page text when returned by the provider, with result snippets as fallback. Official SAP Help/Learning sources are preferred; secondary SAP community/blog content is used only when primary sources are insufficient.
 
 ### 4.6 LLM Synthesis Engine (`backend/app/services/llm_service.py`)
 - **Strict System Prompt**: Strict instruction forbidding hallucination or general knowledge extrapolation.

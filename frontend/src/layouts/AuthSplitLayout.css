@@ -1,0 +1,101 @@
+/* Scoped overrides to remove card/box styling around the login form */
+.auth-split-layout {
+  background-color: #ffffff;
+}
+
+.auth-split-layout .auth-split-left {
+  background-color: #ffffff;
+}
+
+.auth-split-layout .login-layout {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  min-height: 100vh;
+  width: 100%;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  box-sizing: border-box;
+}
+
+.auth-split-layout .login-panel {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  margin: auto !important;
+  min-height: auto !important;
+  width: 100% !important;
+  max-width: 420px !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-split-layout .login-card {
+  width: 100% !important;
+  max-width: 420px !important;
+  margin: 0 auto !important;
+}
+
+/* Ensure quick-access divider text blends cleanly with the pure white background */
+.auth-split-layout .login-card span.bg-\[\#f8f8f6\] {
+  background-color: #ffffff !important;
+}
+
+/* Responsive adjustment below 900px: form fills screen with 16-24px padding */
+@media (max-width: 899px) {
+  .auth-split-layout .login-layout {
+    padding: 24px 16px !important;
+  }
+  .auth-split-layout .login-panel {
+    width: 100% !important;
+    max-width: 420px !important;
+  }
+}
+
+/* Theme tokens applied to Login Form (buttons, inputs, links, and logo) */
+.auth-split-layout .button-dark {
+  background: #334155 !important;
+  border-color: #334155 !important;
+  color: #ffffff !important;
+}
+
+.auth-split-layout .button-dark:hover {
+  background: #1E293B !important;
+  border-color: #1E293B !important;
+}
+
+.auth-split-layout .button-dark:disabled {
+  background: #94A3B8 !important;
+  border-color: #94A3B8 !important;
+  opacity: 0.6 !important;
+}
+
+.auth-split-layout input:focus {
+  border-color: #0284C7 !important;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2) !important;
+}
+
+.auth-split-layout a.text-link,
+.auth-split-layout .text-link,
+.auth-split-layout .login-card a {
+  color: #0369A1 !important;
+}
+
+.auth-split-layout .button-outline:hover {
+  border-color: #334155 !important;
+  color: #0F172A !important;
+  background: #E0F2FE !important;
+}
+
+.auth-split-layout .brand-mark {
+  border-color: #334155 !important;
+}
+
+.auth-split-layout .brand-mark > span {
+  border-color: #334155 !important;
+  border-right-color: transparent !important;
+}

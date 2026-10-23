@@ -1,4 +1,4 @@
-import type { User, Chat, Message, Citation, WebSource } from '../types';
+import type { User, Chat, Message, Citation, WebSource, Project } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -69,25 +69,40 @@ export const apiGetMe = async (): Promise<User> => {
 };
 
 // Chats API
-export const apiGetChats = async (search?: string): Promise<Chat[]> => {
+const chatFromApi = (chat: any): Chat => ({
+  ...chat,
+  isPinned: chat.is_pinned ?? chat.isPinned ?? false,
+  isArchived: chat.is_archived ?? chat.isArchived ?? false,
+  isTemporary: chat.is_temporary ?? chat.isTemporary ?? false,
+});
+
+export const apiGetChats = async (search?: string, includeArchived?: boolean): Promise<Chat[]> => {
   const url = new URL(`${API_BASE_URL}/chats`);
   if (search) url.searchParams.append('search', search);
-
-  const resp = await fetch(url.toString(), {
-    headers: { ...authHeaders() },
-  });
-  if (!resp.ok) throw new Error('Failed to load chats');
-  return resp.json();
+  if (includeArchived) url.searchParams.append('include_archived', 'true');
+  const limit = 100;
+  const chats: Chat[] = [];
+  let offset = 0;
+  while (true) {
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('offset', String(offset));
+    const resp = await fetch(url.toString(), { headers: { ...authHeaders() } });
+    if (!resp.ok) throw new Error('Failed to load chats');
+    const page = (await resp.json()).map(chatFromApi) as Chat[];
+    chats.push(...page);
+    if (page.length < limit) return chats;
+    offset += limit;
+  }
 };
 
-export const apiCreateChat = async (title?: string): Promise<Chat> => {
+export const apiCreateChat = async (title?: string, isTemporary?: boolean): Promise<Chat> => {
   const resp = await fetch(`${API_BASE_URL}/chats`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ title: title || 'New SAP Chat' }),
+    body: JSON.stringify({ title: title || 'New SAP Chat', is_temporary: isTemporary || false }),
   });
   if (!resp.ok) throw new Error('Failed to create chat');
-  return resp.json();
+  return chatFromApi(await resp.json());
 };
 
 export const apiGetChat = async (chatId: string): Promise<Chat & { messages: Message[] }> => {
@@ -95,7 +110,8 @@ export const apiGetChat = async (chatId: string): Promise<Chat & { messages: Mes
     headers: { ...authHeaders() },
   });
   if (!resp.ok) throw new Error('Chat not found');
-  return resp.json();
+  const chat = await resp.json();
+  return { ...chatFromApi(chat), messages: chat.messages };
 };
 
 export const apiUpdateChat = async (chatId: string, title: string): Promise<Chat> => {
@@ -105,7 +121,95 @@ export const apiUpdateChat = async (chatId: string, title: string): Promise<Chat
     body: JSON.stringify({ title }),
   });
   if (!resp.ok) throw new Error('Failed to update chat');
+  return chatFromApi(await resp.json());
+};
+
+export const apiSetChatPinned = async (chatId: string, isPinned: boolean): Promise<Chat> => {
+  const resp = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ is_pinned: isPinned }),
+  });
+  if (!resp.ok) {
+    const error = await resp.json().catch(() => ({}));
+    throw new Error(error.detail || `Could not update chat pin (${resp.status})`);
+  }
+  return chatFromApi(await resp.json());
+};
+
+export const apiSetChatArchived = async (chatId: string, isArchived: boolean): Promise<Chat> => {
+  const resp = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ is_archived: isArchived }),
+  });
+  if (!resp.ok) {
+    const error = await resp.json().catch(() => ({}));
+    throw new Error(error.detail || `Could not update chat archive state (${resp.status})`);
+  }
+  return chatFromApi(await resp.json());
+};
+
+export const apiGetCustomInstructions = async (): Promise<{ about_user?: string; how_to_respond?: string }> => {
+  const resp = await fetch(`${API_BASE_URL}/auth/custom-instructions`, {
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to load custom instructions');
   return resp.json();
+};
+
+export const apiUpdateCustomInstructions = async (instructions: {
+  about_user?: string;
+  how_to_respond?: string;
+}): Promise<{ about_user?: string; how_to_respond?: string }> => {
+  const resp = await fetch(`${API_BASE_URL}/auth/custom-instructions`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(instructions),
+  });
+  if (!resp.ok) throw new Error('Failed to save custom instructions');
+  return resp.json();
+};
+
+const projectFromApi = (project: any): Project => ({
+  id: project.id,
+  userId: project.user_id,
+  name: project.name,
+  description: project.description || undefined,
+  createdAt: project.created_at,
+  updatedAt: project.updated_at,
+  isPinned: project.is_pinned,
+});
+
+export const apiGetProjects = async (): Promise<Project[]> => {
+  const resp = await fetch(`${API_BASE_URL}/projects`, { headers: { ...authHeaders() } });
+  if (!resp.ok) throw new Error('Failed to load projects');
+  return (await resp.json()).map(projectFromApi);
+};
+
+export const apiCreateProject = async (name: string, description?: string): Promise<Project> => {
+  const resp = await fetch(`${API_BASE_URL}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ name, description }),
+  });
+  if (!resp.ok) throw new Error('Failed to create project');
+  return projectFromApi(await resp.json());
+};
+
+export const apiUpdateProject = async (id: string, updates: Partial<Pick<Project, 'name' | 'description' | 'isPinned'>>): Promise<Project> => {
+  const resp = await fetch(`${API_BASE_URL}/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ name: updates.name, description: updates.description, is_pinned: updates.isPinned }),
+  });
+  if (!resp.ok) throw new Error('Failed to update project');
+  return projectFromApi(await resp.json());
+};
+
+export const apiDeleteProject = async (id: string): Promise<void> => {
+  const resp = await fetch(`${API_BASE_URL}/projects/${id}`, { method: 'DELETE', headers: { ...authHeaders() } });
+  if (!resp.ok) throw new Error('Failed to delete project');
 };
 
 export const apiDeleteChat = async (chatId: string): Promise<void> => {
@@ -125,11 +229,15 @@ export const apiGetMessages = async (chatId: string): Promise<Message[]> => {
   return resp.json();
 };
 
-export const apiSendMessage = async (chatId: string, content: string): Promise<Message> => {
+export const apiSendMessage = async (
+  chatId: string,
+  content: string,
+  attachmentIds?: string[]
+): Promise<Message> => {
   const resp = await fetch(`${API_BASE_URL}/chats/${chatId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, attachment_ids: attachmentIds }),
   });
   if (!resp.ok) throw new Error('Failed to send message');
   return resp.json();
@@ -156,16 +264,41 @@ export interface StreamStatus {
 
 export interface StreamMetadata {
   message_id?: string;
-  source_type?: 'knowledge_base' | 'web' | 'combined' | 'refusal' | 'error' | 'interrupted';
-  grounding_score?: number;
+  source_type?: 'knowledge_base' | 'web' | 'combined' | 'insufficient' | 'refusal' | 'error' | 'interrupted';
+  selected_source?: string;
+  grounding_score?: number | null;
+  kb_grounding_score?: number | null;
+  web_grounding_score?: number | null;
+  grounding_status?: string | null;
+  grounding_method?: string | null;
+  grounding_summary?: string | null;
+  grounding_claims?: Array<{
+    claim: string;
+    status: 'supported' | 'partially_supported' | 'contradicted' | 'unsupported';
+    supporting_source_ids: string[];
+    supporting_evidence: Array<{
+      evidence_id: string;
+      source_type: 'knowledge_base' | 'web';
+      title?: string;
+      page_number?: number;
+      section?: string;
+      url?: string;
+    }>;
+    reason: string;
+  }>;
   citations?: Citation[];
   web_sources?: WebSource[];
   is_in_rag_pipeline?: boolean;
   kb_score?: number;
   web_score?: number;
   winning_score?: number;
-  verification_status?: 'verified' | 'partial' | 'unverified' | 'abstention';
+  verification_status?: string | null;
   internal_evidence_confidence?: number;
+  kb_relevance_score?: number;
+  kb_threshold?: number;
+  fallback_reason?: string | null;
+  web_search_used?: boolean;
+  stage_timings_ms?: Record<string, number>;
   selected_evidence_quality?: number;
   external_search_used?: boolean;
   follow_up_questions?: string[];
@@ -184,16 +317,22 @@ export const apiStreamMessage = async (
   chatId: string,
   content: string,
   callbacks: StreamCallbacks,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  attachmentIds?: string[]
 ): Promise<void> => {
+  const requestStartedAt = performance.now();
+  let isCompleted = false;
   try {
+    const requestId = crypto.randomUUID();
+    let firstAnswerTokenAt: number | null = null;
     const resp = await fetch(`${API_BASE_URL}/chats/${chatId}/messages?stream=true`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Request-ID': requestId,
         ...authHeaders(),
       },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, attachment_ids: attachmentIds }),
       signal,
     });
 
@@ -206,7 +345,6 @@ export const apiStreamMessage = async (
 
     const decoder = new TextDecoder();
     let buffer = '';
-    let isCompleted = false;
     let finalReceivedAnswer: string | undefined = undefined;
     let lastDoneMeta: StreamMetadata = {};
 
@@ -237,9 +375,17 @@ export const apiStreamMessage = async (
             } else if (parsed.type === 'token') {
               const tokenContent = parsed.content ?? parsed.token ?? '';
               if (tokenContent) {
+                if (firstAnswerTokenAt === null) {
+                  firstAnswerTokenAt = performance.now();
+                }
                 callbacks.onToken?.(tokenContent);
               }
             } else if (parsed.type === 'done') {
+              console.info('chat_stream_timing', {
+                requestId,
+                firstVisibleAnswerMs: firstAnswerTokenAt === null ? null : Math.round(firstAnswerTokenAt - requestStartedAt),
+                endToEndMs: Math.round(performance.now() - requestStartedAt),
+              });
               lastDoneMeta = parsed;
               const ans = parsed.answer || parsed.full_answer;
               if (ans) {
@@ -247,7 +393,9 @@ export const apiStreamMessage = async (
               }
               finishStream(parsed, ans);
             } else if (parsed.type === 'error') {
-              callbacks.onError?.(new Error(parsed.message || 'Generation error occurred'));
+              if (!isCompleted) {
+                callbacks.onError?.(new Error(parsed.message || 'Generation error occurred'));
+              }
             } else if (parsed.citations !== undefined || parsed.message_id !== undefined) {
               lastDoneMeta = { ...lastDoneMeta, ...parsed };
               callbacks.onMetadata?.(parsed);
@@ -285,6 +433,214 @@ export const apiStreamMessage = async (
       console.log('Streaming aborted by user.');
       return;
     }
-    callbacks.onError?.(err);
+    if (!isCompleted) {
+      callbacks.onError?.(err);
+    } else {
+      console.warn('Stream connection closed after completion:', err);
+    }
   }
 };
+
+// ==========================================
+// Memory Management APIs
+// ==========================================
+
+export const apiGetMemorySettings = async (): Promise<{ memory_enabled: boolean }> => {
+  const resp = await fetch(`${API_BASE_URL}/memories/settings`, {
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to fetch memory settings');
+  return resp.json();
+};
+
+export const apiUpdateMemorySettings = async (memory_enabled: boolean): Promise<{ memory_enabled: boolean }> => {
+  const resp = await fetch(`${API_BASE_URL}/memories/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ memory_enabled }),
+  });
+  if (!resp.ok) throw new Error('Failed to update memory settings');
+  return resp.json();
+};
+
+export const apiGetMemories = async (params?: {
+  memory_type?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: any[]; total: number; limit: number; offset: number }> => {
+  const url = new URL(`${API_BASE_URL}/memories`);
+  if (params?.memory_type) url.searchParams.set('memory_type', params.memory_type);
+  if (params?.status) url.searchParams.set('status', params.status);
+  if (params?.limit) url.searchParams.set('limit', String(params.limit));
+  if (params?.offset) url.searchParams.set('offset', String(params.offset));
+
+  const resp = await fetch(url.toString(), {
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to load memories');
+  return resp.json();
+};
+
+export const apiUpdateMemory = async (
+  memoryId: string,
+  updates: { summary?: string; status?: string; memory_type?: string }
+): Promise<any> => {
+  const resp = await fetch(`${API_BASE_URL}/memories/${memoryId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error('Failed to update memory');
+  return resp.json();
+};
+
+export const apiDeleteMemory = async (memoryId: string): Promise<void> => {
+  const resp = await fetch(`${API_BASE_URL}/memories/${memoryId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to delete memory');
+};
+
+export const apiDeleteAllMemories = async (): Promise<{ count: number }> => {
+  const resp = await fetch(`${API_BASE_URL}/memories`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to delete all memories');
+  return resp.json();
+};
+
+export const apiGetScenarios = async (status?: string): Promise<any[]> => {
+  const url = new URL(`${API_BASE_URL}/memories/scenarios/all`);
+  if (status) url.searchParams.set('status', status);
+  const resp = await fetch(url.toString(), {
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to load scenario memories');
+  return resp.json();
+};
+
+export const apiUpdateScenario = async (scenarioId: string, updates: any): Promise<any> => {
+  const resp = await fetch(`${API_BASE_URL}/memories/scenarios/${scenarioId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error('Failed to update scenario');
+  return resp.json();
+};
+
+export const apiDeleteScenario = async (scenarioId: string): Promise<void> => {
+  const resp = await fetch(`${API_BASE_URL}/memories/scenarios/${scenarioId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to delete scenario');
+};
+
+export const apiGetVisualMeta = async (visualId: number | string): Promise<any> => {
+  const resp = await fetch(`${API_BASE_URL}/visuals/${visualId}`, {
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to load visual metadata');
+  return resp.json();
+};
+
+export const apiFetchVisualBlob = async (visualId: number | string): Promise<Blob> => {
+  const resp = await fetch(`${API_BASE_URL}/visuals/${visualId}/asset`, {
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) throw new Error('Failed to load visual asset file');
+  return resp.blob();
+};
+
+export const apiRegenerateVisual = async (
+  visualId: number | string,
+  instruction: string
+): Promise<any> => {
+  const resp = await fetch(`${API_BASE_URL}/visuals/${visualId}/regenerate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ instruction }),
+  });
+  if (!resp.ok) throw new Error('Failed to regenerate visual');
+  return resp.json();
+};
+
+export const apiSubmitMessageFeedback = async (
+  chatId: string,
+  messageId: string,
+  rating: 'up' | 'down',
+  comment?: string
+): Promise<{ message_id: string; feedback: string; feedback_comment?: string; status: string }> => {
+  const resp = await fetch(`${API_BASE_URL}/chats/${chatId}/messages/${messageId}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ rating, comment }),
+  });
+  if (!resp.ok) {
+    const errorData = await resp.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to submit feedback');
+  }
+  return resp.json();
+};
+
+export const apiExportChat = async (
+  chatId: string,
+  format: 'markdown' | 'json' | 'txt' = 'markdown'
+): Promise<{ blob: Blob; filename: string }> => {
+  const resp = await fetch(`${API_BASE_URL}/chats/${chatId}/export?format=${format}`, {
+    headers: { ...authHeaders() },
+  });
+  if (!resp.ok) {
+    throw new Error('Failed to export conversation');
+  }
+  const disposition = resp.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : `chat_export.${format === 'markdown' ? 'md' : format}`;
+  const blob = await resp.blob();
+  return { blob, filename };
+};
+
+export interface ChatAttachmentResult {
+  id: string;
+  attachment_id: string;
+  filename: string;
+  file_type: 'image' | 'document';
+  mime_type: string;
+  preview_url: string;
+  size_bytes: number;
+  char_count: number;
+  extracted_text: string;
+  snippet: string;
+  vision_metadata?: Record<string, any>;
+}
+
+export const apiUploadChatAttachment = async (
+  chatId: string,
+  file: File
+): Promise<ChatAttachmentResult> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers = authHeaders() as Record<string, string>;
+  delete headers['Content-Type'];
+
+  const resp = await fetch(`${API_BASE_URL}/chats/${chatId}/attachment`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!resp.ok) {
+    const errorData = await resp.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to upload and parse attachment');
+  }
+
+  return resp.json();
+};
+
+
+

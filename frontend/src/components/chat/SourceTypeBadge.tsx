@@ -2,7 +2,7 @@ import React from 'react';
 import { Database, Globe, Layers, AlertCircle } from 'lucide-react';
 
 interface SourceTypeBadgeProps {
-  sourceType?: 'knowledge_base' | 'web' | 'combined' | 'refusal' | 'error' | 'interrupted' | 'security_policy';
+  sourceType?: 'knowledge_base' | 'web' | 'combined' | 'insufficient' | 'refusal' | 'error' | 'interrupted' | 'security_policy';
 }
 
 export const SourceTypeBadge: React.FC<SourceTypeBadgeProps> = ({ sourceType }) => {
@@ -30,7 +30,7 @@ export const SourceTypeBadge: React.FC<SourceTypeBadgeProps> = ({ sourceType }) 
     return (
       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
         <Globe className="w-3 h-3 text-cyan-400" />
-        <span>SAP Documentation (help.sap.com)</span>
+        <span>SAP Web Sources</span>
       </span>
     );
   }
@@ -40,6 +40,15 @@ export const SourceTypeBadge: React.FC<SourceTypeBadgeProps> = ({ sourceType }) 
       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30">
         <Layers className="w-3 h-3 text-purple-400" />
         <span>Multi-Source Grounded</span>
+      </span>
+    );
+  }
+
+  if (sourceType === 'insufficient') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
+        <AlertCircle className="w-3 h-3 text-amber-400" />
+        <span>Insufficient verified sources</span>
       </span>
     );
   }

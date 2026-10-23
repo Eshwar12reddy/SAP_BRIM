@@ -1,0 +1,271 @@
+﻿import sqlite3
+from pathlib import Path
+
+from fastembed import TextEmbedding
+from sqlalchemy import MetaData, inspect, text
+
+from backend.app.database import get_engine
+
+SOURCE = Path("backend/sap_assistant.db")
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+BATCH_SIZE = 64
+
+TABLE_ORDER = [
+    "users",
+    "documents",
+    "chats",
+    "document_chunks",
+    "messages",
+    "citations",
+    "web_sources",
+    "chat_attachments",
+    "visual_assets",
+    "conversation_memories",
+    "conversation_summaries",
+    "sap_scenario_memories",
+    "projects",
+]
+
+MESSAGE_EXTRA_COLUMNS = {
+    "kb_grounding_score": "FLOAT",
+    "web_grounding_score": "FLOAT",
+    "grounding_status": "VARCHAR(50)",
+    "verification_status": "VARCHAR(50)",
+    "grounding_details": "TEXT",
+    "image_url": "VARCHAR(512)",
+    "image_caption": "TEXT",
+    "image_status": "VARCHAR(50)",
+    "image_type": "VARCHAR(100)",
+}
+
+
+def embed_batch(model, texts):
+    if not texts:
+        return []
+    return [
+        [float(value) for value in vector]
+        for vector in model.embed(texts)
+    ]
+
+
+def memory_text(table, row):
+    if table == "conversation_memories":
+        return row["summary"] or ""
+    if table == "conversation_summaries":
+        return row["summary"] or ""
+    if table == "sap_scenario_memories":
+        return " ".join(
+            part for part in [
+                row["scenario_title"] or "",
+                row["symptoms"] or "",
+            ] if part
+        )
+    return row["chunk_text"] or ""
+
+
+def main():
+    if not SOURCE.exists():
+        raise FileNotFoundError(f"SQLite source not found: {SOURCE}")
+
+    engine = get_engine()
+    sqlite_uri = f"file:{SOURCE.resolve().as_posix()}?mode=ro"
+    source_db = sqlite3.connect(sqlite_uri, uri=True)
+    source_db.row_factory = sqlite3.Row
+
+    try:
+        # Confirm all expected source tables exist.
+        source_tables = {
+            row[0] for row in source_db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        missing = set(TABLE_ORDER) - source_tables
+        if missing:
+            raise RuntimeError(f"Missing SQLite tables: {sorted(missing)}")
+
+        # Refuse to mix this migration with existing PostgreSQL data.
+        inspector = inspect(engine)
+        target_tables = set(inspector.get_table_names())
+        missing_target = set(TABLE_ORDER) - target_tables
+        if missing_target:
+            raise RuntimeError(
+                f"Missing PostgreSQL tables: {sorted(missing_target)}"
+            )
+
+        existing_counts = {}
+        with engine.connect() as conn:
+            for table in TABLE_ORDER:
+                count = conn.execute(
+                    text(f'SELECT COUNT(*) FROM "{table}"')
+                ).scalar_one()
+                existing_counts[table] = count
+
+        if any(existing_counts.values()):
+            raise RuntimeError(
+                "Migration stopped: PostgreSQL is not empty. "
+                f"Existing row counts: {existing_counts}"
+            )
+
+        # Add SQLite-only message fields before copying historical messages.
+        with engine.begin() as conn:
+            message_columns = {
+                col["name"] for col in inspect(conn).get_columns("messages")
+            }
+            for name, sql_type in MESSAGE_EXTRA_COLUMNS.items():
+                if name not in message_columns:
+                    conn.execute(text(
+                        f'ALTER TABLE messages ADD COLUMN "{name}" {sql_type}'
+                    ))
+
+        # Validate every SQLite source column has a PostgreSQL destination.
+        inspector = inspect(engine)
+        metadata = MetaData()
+        metadata.reflect(bind=engine, only=TABLE_ORDER)
+
+        for table_name in TABLE_ORDER:
+            source_columns = {
+                col[1] for col in source_db.execute(
+                    f'PRAGMA table_info("{table_name}")'
+                )
+            }
+            target_columns = {
+                col["name"] for col in inspector.get_columns(table_name)
+            }
+            absent = source_columns - target_columns
+            if absent:
+                raise RuntimeError(
+                    f"{table_name}: PostgreSQL lacks source columns "
+                    f"{sorted(absent)}"
+                )
+
+        # Load the embedding model before opening the data-copy transaction.
+        print(f"Loading embedding model: {MODEL_NAME}")
+        model = TextEmbedding(model_name=MODEL_NAME)
+        test_vector = embed_batch(model, ["SAP BRIM migration test"])[0]
+        if len(test_vector) != 384:
+            raise RuntimeError(
+                f"Expected 384-dimensional vectors, got {len(test_vector)}"
+            )
+        print("Embedding model ready: 384 dimensions")
+
+        expected_counts = {}
+        for table_name in TABLE_ORDER:
+            expected_counts[table_name] = source_db.execute(
+                f'SELECT COUNT(*) FROM "{table_name}"'
+            ).fetchone()[0]
+
+        copied_counts = {name: 0 for name in TABLE_ORDER}
+
+        # One transaction: a failure rolls back all copied rows.
+        with engine.begin() as conn:
+            for table_name in TABLE_ORDER:
+                target_table = metadata.tables[table_name]
+                cursor = source_db.execute(
+                    f'SELECT * FROM "{table_name}"'
+                )
+                source_columns = [col[0] for col in cursor.description]
+                print(
+                    f"Migrating {table_name}: "
+                    f"{expected_counts[table_name]} rows"
+                )
+
+                while True:
+                    batch_rows = cursor.fetchmany(BATCH_SIZE)
+                    if not batch_rows:
+                        break
+
+                    records = [
+                        dict(zip(source_columns, tuple(row)))
+                        for row in batch_rows
+                    ]
+
+                    # Never reuse the old 768-dimensional chunk vectors.
+                    # Preserve chunk text and all other source fields.
+                    if table_name == "document_chunks":
+                        vectors = embed_batch(
+                            model,
+                            [row["chunk_text"] or "" for row in records],
+                        )
+                        for row, vector in zip(records, vectors):
+                            row["embedding"] = vector
+
+                    # Rebuild existing memory vectors using the same model
+                    # as the application's current query embedding service.
+                    elif table_name in (
+                        "conversation_memories",
+                        "conversation_summaries",
+                        "sap_scenario_memories",
+                    ):
+                        to_embed = [
+                            i for i, row in enumerate(records)
+                            if row.get("embedding") is not None
+                        ]
+                        texts_to_embed = [
+                            memory_text(table_name, records[i])
+                            for i in to_embed
+                        ]
+                        vectors = embed_batch(model, texts_to_embed)
+                        for i, vector in zip(to_embed, vectors):
+                            records[i]["embedding"] = vector
+
+                    conn.execute(target_table.insert(), records)
+                    copied_counts[table_name] += len(records)
+
+                print(
+                    f"  Copied {copied_counts[table_name]} rows"
+                )
+
+        # Verify counts after the transaction commits.
+        print("\nMigration committed. Verifying row counts...")
+        with engine.connect() as conn:
+            failed = False
+            for table_name in TABLE_ORDER:
+                actual = conn.execute(
+                    text(f'SELECT COUNT(*) FROM "{table_name}"')
+                ).scalar_one()
+                expected = expected_counts[table_name]
+                status = "OK" if actual == expected else "MISMATCH"
+                print(
+                    f"{table_name}: SQLite={expected}, "
+                    f"PostgreSQL={actual} [{status}]"
+                )
+                if actual != expected:
+                    failed = True
+
+            dimensions = conn.execute(text("""
+                SELECT COUNT(*)
+                FROM document_chunks
+                WHERE embedding IS NULL
+                   OR vector_dims(embedding) <> 384
+            """)).scalar_one()
+            print(
+                f"Invalid document chunk embeddings (expected 0): "
+                f"{dimensions}"
+            )
+            if dimensions:
+                failed = True
+
+            chunk_count = conn.execute(text("""
+                SELECT COUNT(*)
+                FROM document_chunks
+            """)).scalar_one()
+            print(f"Total knowledge-base chunks: {chunk_count}")
+
+            if chunk_count != 14350:
+                failed = True
+
+            if failed:
+                raise RuntimeError(
+                    "Post-migration verification failed. "
+                    "Do not delete or modify the SQLite source."
+                )
+
+        print("\nMigration and basic verification completed successfully.")
+
+    finally:
+        source_db.close()
+        engine.dispose()
+
+
+if __name__ == "__main__":
+    main()

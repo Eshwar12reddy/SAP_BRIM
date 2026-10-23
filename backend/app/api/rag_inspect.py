@@ -1,10 +1,10 @@
-﻿"""
+"""
 RAG Inspection API Endpoints
 Provides full transparency into the RAG pipeline:
 - Document ingestion status (all files in knowledge base, chunk counts, embedding coverage)
 - Per-query similarity search with individual chunk scores
-- KB confidence signals vs web search score comparison
-- Real-time evidence source winner
+- KB reference signals alongside mandatory SAP web search results
+- Web-only answer evidence selection
 """
 import logging
 from pathlib import Path
@@ -25,6 +25,7 @@ from backend.app.services.reranking_service import reranking_service
 from backend.app.services.embedding_service import embedding_service
 from backend.app.services.evidence_selection_service import evidence_selection_service
 from backend.app.services.web_search_service import web_search_service
+from backend.app.services.web_search_service import TavilyAuthenticationError
 from backend.app.services.grounding_service import grounding_service
 from backend.app.ingestion.ingest import discover_knowledge_base_files
 
@@ -61,6 +62,12 @@ def get_document_status(
             .filter(DocumentChunk.embedding != None)
             .count()
         )
+        doc_status = getattr(doc, "status", None)
+        if not doc_status:
+            doc_status = "indexed" if chunk_count > 0 else "empty"
+        elif doc_status == "completed":
+            doc_status = "indexed"
+
         indexed_map[doc.filename] = {
             "document_id": str(doc.id),
             "title": doc.title,
@@ -68,9 +75,12 @@ def get_document_status(
             "page_count": doc.page_count,
             "chunk_count": chunk_count,
             "embedded_count": embedded_count,
+            "total_chunks": getattr(doc, "total_chunks", chunk_count) or chunk_count,
+            "embedded_chunks": getattr(doc, "embedded_chunks", embedded_count) or embedded_count,
             "embedding_coverage": round(embedded_count / chunk_count, 4) if chunk_count > 0 else 0.0,
-            "is_indexed": chunk_count > 0,
-            "status": "indexed" if chunk_count > 0 else "empty",
+            "is_indexed": chunk_count > 0 and doc_status in ("indexed", "completed"),
+            "status": doc_status,
+            "error_message": getattr(doc, "error_message", None),
             "file_hash": doc.file_hash,
         }
 
@@ -122,7 +132,7 @@ def get_document_status(
             "embedding_dim": settings.EMBEDDING_DIM,
             "internal_evidence_threshold": settings.INTERNAL_EVIDENCE_THRESHOLD,
             "grounding_threshold": settings.ANSWER_GROUNDING_THRESHOLD,
-            "web_fallback_enabled": settings.WEB_FALLBACK_ENABLED,
+            "web_fallback_enabled": True,
         },
         "documents": documents
     }
@@ -155,24 +165,32 @@ def test_similarity_search(
 
     web_results = []
     web_score = 0.0
-    web_triggered = False
-    if (should_trigger_tavily or request.include_web_search) and settings.WEB_FALLBACK_ENABLED:
-        web_triggered = True
-        try:
-            raw_web = web_search_service.search_sap_authoritative(query)
-            if raw_web:
-                top_web, web_score = reranking_service.rerank_web(query, raw_web, top_n=5)
-                web_results = top_web
-        except Exception as e:
-            logger.warning(f"Web search error: {e}")
+    web_search_succeeded = False
+    evidence_selection = None
+    try:
+        raw_web = web_search_service.search_sap_authoritative(query)
+        web_search_succeeded = True
+        if raw_web:
+            top_web, web_score = reranking_service.rerank_web(query, raw_web, top_n=5)
+            web_results = top_web
+    except TavilyAuthenticationError as e:
+        evidence_selection = evidence_selection_service.select_internal_key_fallback(
+            query=query,
+            internal_candidates=top_kb_chunks,
+            internal_confidence_data=internal_confidence_data,
+            reason=str(e),
+        )
+    except Exception as e:
+        logger.warning(f"Web search error: {e}")
 
-    evidence_selection = evidence_selection_service.select_strongest_evidence(
-        query=query,
-        internal_candidates=top_kb_chunks,
-        external_candidates=web_results,
-        internal_confidence_data=internal_confidence_data
-    )
-    selected_source = evidence_selection.get("source_type", "knowledge_base")
+    if evidence_selection is None:
+        evidence_selection = evidence_selection_service.select_strongest_evidence(
+            query=query,
+            internal_candidates=top_kb_chunks,
+            external_candidates=web_results,
+            internal_confidence_data=internal_confidence_data
+        )
+    selected_source = evidence_selection.get("source_type", "insufficient")
     selected_quality = evidence_selection.get("selected_evidence_quality", 0.0)
 
     chunk_rows = []
@@ -217,12 +235,12 @@ def test_similarity_search(
             "confidence_pct": f"{internal_conf * 100:.1f}%",
             "threshold": settings.INTERNAL_EVIDENCE_THRESHOLD,
             "passes_threshold": internal_conf >= settings.INTERNAL_EVIDENCE_THRESHOLD,
-            "would_trigger_web_search": should_trigger_tavily,
+            "would_trigger_web_search": True,
             "signals": internal_confidence_data.get("signals", {}),
             "reason": internal_confidence_data.get("reason", ""),
         },
         "web_search": {
-            "triggered": web_triggered,
+            "triggered": web_search_succeeded,
             "results_count": len(web_results),
             "top_web_score": round(web_score, 4),
             "results": web_rows,
@@ -249,3 +267,9 @@ def test_similarity_search(
         },
         "top_chunks": chunk_rows,
     }
+
+
+
+
+
+

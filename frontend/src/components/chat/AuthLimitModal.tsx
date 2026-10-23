@@ -67,7 +67,7 @@ export const AuthLimitModal: React.FC<AuthLimitModalProps> = ({
                 <span>Free Preview Limit</span>
               </div>
               <h2 className="text-xl font-bold text-white tracking-tight">
-                Continue with Clyptusap.ai
+                Continue with Clyptus.Ai
               </h2>
             </div>
           </div>

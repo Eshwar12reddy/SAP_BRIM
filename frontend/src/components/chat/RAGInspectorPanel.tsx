@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Database, FileText, Search, ChevronRight, ChevronDown, Globe, BookOpen,
   CheckCircle2, AlertCircle, XCircle, Loader2, BarChart2, Trophy, Zap,
-  RefreshCw, Target, Shield
+  RefreshCw, Target, Shield, Upload
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -21,9 +21,12 @@ interface DocStatus {
   page_count: number;
   chunk_count: number;
   embedded_count: number;
+  total_chunks?: number;
+  embedded_chunks?: number;
   embedding_coverage: number;
   is_indexed: boolean;
-  status: 'indexed' | 'not_indexed' | 'empty' | 'orphaned';
+  status: string;
+  error_message?: string | null;
   file_hash: string | null;
 }
 
@@ -132,24 +135,63 @@ function ScoreBar({ score, color = 'orange', label }: { score: number; color?: s
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  if (status === 'indexed') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
-      <CheckCircle2 className="w-3 h-3" /> Indexed
-    </span>
-  );
-  if (status === 'not_indexed') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/60 text-amber-300 border border-amber-800/40">
-      <AlertCircle className="w-3 h-3" /> Not Indexed
-    </span>
-  );
-  if (status === 'orphaned') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/60 text-red-300 border border-red-800/40">
-      <XCircle className="w-3 h-3" /> Orphaned
-    </span>
-  );
+function StatusBadge({
+  status,
+  embedded_chunks,
+  total_chunks,
+}: {
+  status: string;
+  embedded_chunks?: number;
+  total_chunks?: number;
+}) {
+  const normStatus = status?.toLowerCase() || '';
+  if (normStatus === 'indexed' || normStatus === 'completed') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
+        <CheckCircle2 className="w-3 h-3" /> Indexed
+      </span>
+    );
+  }
+  if (normStatus === 'processing') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-950/60 text-orange-300 border border-orange-800/40 animate-pulse">
+        <Loader2 className="w-3 h-3 animate-spin text-orange-400" />
+        Processing {total_chunks ? `(${embedded_chunks || 0}/${total_chunks})` : ''}
+      </span>
+    );
+  }
+  if (normStatus === 'uploaded') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-950/60 text-blue-300 border border-blue-800/40">
+        <Loader2 className="w-3 h-3 animate-spin text-blue-400" /> Queued
+      </span>
+    );
+  }
+  if (normStatus === 'failed') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/60 text-red-300 border border-red-800/40">
+        <XCircle className="w-3 h-3" /> Failed
+      </span>
+    );
+  }
+  if (normStatus === 'not_indexed') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/60 text-amber-300 border border-amber-800/40">
+        <AlertCircle className="w-3 h-3" /> Not Indexed
+      </span>
+    );
+  }
+  if (normStatus === 'orphaned') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/60 text-red-300 border border-red-800/40">
+        <XCircle className="w-3 h-3" /> Orphaned
+      </span>
+    );
+  }
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">Empty</span>
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+      {status || 'Empty'}
+    </span>
   );
 }
 
@@ -166,6 +208,9 @@ export const RAGInspectorPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [ingestLoading, setIngestLoading] = useState(false);
   const [ingestResult, setIngestResult] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchDocuments = useCallback(async () => {
     setLoadingDocs(true);
@@ -182,6 +227,78 @@ export const RAGInspectorPanel: React.FC = () => {
       setLoadingDocs(false);
     }
   }, []);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadMsg(`Uploading ${file.name}...`);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/documents/upload`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'X-Admin-Key': 'sap-admin-dev-secret-key-999',
+        },
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || `Upload failed with HTTP ${res.status}`);
+      }
+
+      setUploadMsg(data.message || `Uploaded ${file.name}. Ingestion in progress...`);
+      await fetchDocuments();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+      setUploadMsg(null);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRetry = async (docId: string, filename: string) => {
+    try {
+      setUploadMsg(`Retrying ingestion for ${filename}...`);
+      setError(null);
+      const res = await fetch(`${API_BASE}/admin/documents/${docId}/retry`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+          'X-Admin-Key': 'sap-admin-dev-secret-key-999',
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Retry failed');
+      setUploadMsg(data.message || `Retry initiated for ${filename}`);
+      await fetchDocuments();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Retry failed');
+    }
+  };
+
+  // Auto-poll if any document is processing or queued
+  useEffect(() => {
+    const hasActive = docStatus?.documents.some(
+      d => d.status === 'processing' || d.status === 'uploaded'
+    );
+    if (!hasActive) return;
+
+    const interval = setInterval(() => {
+      fetchDocuments();
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [docStatus, fetchDocuments]);
 
   const runSimilaritySearch = async () => {
     if (!query.trim()) return;
@@ -214,7 +331,7 @@ export const RAGInspectorPanel: React.FC = () => {
       });
       const data = await res.json();
       const details: Array<{status: string}> = data.details || [];
-      const ingested = details.filter(d => d.status === 'ingested').length;
+      const ingested = details.filter(d => d.status === 'ingested' || d.status === 'completed').length;
       const skipped = details.filter(d => d.status === 'skipped').length;
       setIngestResult(`Done: ${ingested} ingested, ${skipped} skipped. Total: ${details.length} files.`);
       await fetchDocuments();
@@ -256,6 +373,22 @@ export const RAGInspectorPanel: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            accept=".pdf,.txt,.md,.markdown,.docx"
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-black text-xs font-bold transition cursor-pointer disabled:opacity-50"
+            title="Upload PDF, TXT, MD or DOCX for automatic ingestion"
+          >
+            {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+            Upload Document
+          </button>
           <button onClick={fetchDocuments} className="p-1.5 rounded-lg text-slate-400 hover:text-orange-400 hover:bg-orange-500/10 transition cursor-pointer" title="Refresh">
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
@@ -266,6 +399,11 @@ export const RAGInspectorPanel: React.FC = () => {
         </div>
       </div>
 
+      {uploadMsg && (
+        <div className="px-5 py-2 bg-blue-950/40 border-b border-blue-800/30 text-[11px] text-blue-300 flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> {uploadMsg}
+        </div>
+      )}
       {ingestResult && (
         <div className="px-5 py-2 bg-emerald-950/40 border-b border-emerald-800/30 text-[11px] text-emerald-300 flex items-center gap-2">
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {ingestResult}
@@ -360,16 +498,67 @@ export const RAGInspectorPanel: React.FC = () => {
                 {docStatus.documents.map((doc, idx) => (
                   <div key={idx} className={`px-4 py-3 flex items-start gap-3 hover:bg-[#0c0c14] transition ${!doc.is_indexed ? 'opacity-70' : ''}`}>
                     <div className="mt-0.5 shrink-0">
-                      {doc.is_indexed ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <AlertCircle className="w-4 h-4 text-amber-500" />}
+                      {doc.is_indexed ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      ) : doc.status === 'processing' ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                      ) : doc.status === 'failed' ? (
+                        <XCircle className="w-4 h-4 text-red-500" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-amber-500" />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 flex-wrap">
                         <span className="text-xs font-medium text-slate-200 truncate max-w-xs" title={doc.filename}>{doc.filename}</span>
                         <div className="flex items-center gap-2 shrink-0">
-                          <StatusBadge status={doc.status} />
+                          <StatusBadge
+                            status={doc.status}
+                            embedded_chunks={doc.embedded_chunks}
+                            total_chunks={doc.total_chunks}
+                          />
                           <span className="text-[10px] text-slate-500">{doc.file_size_mb} MB</span>
                         </div>
                       </div>
+
+                      {/* Processing progress bar */}
+                      {doc.status === 'processing' && (
+                        <div className="mt-2 bg-[#12121e] border border-orange-500/20 rounded-lg p-2.5">
+                          <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="text-orange-300 font-medium flex items-center gap-1.5">
+                              <Loader2 className="w-3 h-3 animate-spin text-orange-400" /> Ingestion in progress...
+                            </span>
+                            <span className="text-slate-400 font-mono">
+                              {doc.embedded_chunks || 0} / {doc.total_chunks || 0} chunks ({doc.total_chunks ? Math.round(((doc.embedded_chunks || 0) / doc.total_chunks) * 100) : 0}%)
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-orange-500 rounded-full transition-all duration-300"
+                              style={{ width: `${doc.total_chunks ? Math.min(100, Math.round(((doc.embedded_chunks || 0) / doc.total_chunks) * 100)) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Failed error banner with retry button */}
+                      {doc.status === 'failed' && (
+                        <div className="mt-2 bg-red-950/30 border border-red-800/40 rounded-lg p-2.5 flex items-center justify-between gap-3">
+                          <div className="text-[11px] text-red-300">
+                            <span className="font-semibold text-red-200">Failure: </span>
+                            {doc.error_message || 'Ingestion encountered an error.'}
+                          </div>
+                          {doc.document_id && (
+                            <button
+                              onClick={() => handleRetry(doc.document_id!, doc.filename)}
+                              className="shrink-0 px-2.5 py-1 rounded-md bg-red-800/50 hover:bg-red-700/60 border border-red-600/50 text-[10px] font-semibold text-red-100 transition cursor-pointer"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      )}
+
                       {doc.is_indexed && (
                         <>
                           <div className="mt-1.5 grid grid-cols-3 gap-3">
@@ -416,7 +605,7 @@ export const RAGInspectorPanel: React.FC = () => {
               {/* Score Comparison - KEY DISPLAY */}
               <div className="px-5 py-4 bg-[#09090f]">
                 <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                  <Trophy className="w-3.5 h-3.5 text-orange-400" /> Score Comparison: KB vs Web
+                  <Trophy className="w-3.5 h-3.5 text-orange-400" /> KB Reference Match vs Web Evidence
                 </div>
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   {/* KB */}
@@ -424,22 +613,15 @@ export const RAGInspectorPanel: React.FC = () => {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-1.5">
                         <BookOpen className="w-3.5 h-3.5 text-orange-400" />
-                        <span className="text-xs font-semibold text-slate-200">Knowledge Base</span>
+                        <span className="text-xs font-semibold text-slate-200">KB Reference Only</span>
                       </div>
-                      {searchResult.evidence_selection.kb_wins && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded-full">
-                          <Trophy className="w-3 h-3" /> Winner
-                        </span>
-                      )}
                     </div>
-                    <div className={`text-2xl font-bold mb-1 ${searchResult.score_comparison.kb_score >= 0.70 ? 'text-emerald-400' : searchResult.score_comparison.kb_score >= 0.50 ? 'text-orange-400' : 'text-amber-400'}`}>
+                    <div className={`text-2xl font-bold mb-1 ${searchResult.score_comparison.kb_score >= 0.75 ? 'text-emerald-400' : searchResult.score_comparison.kb_score >= 0.50 ? 'text-orange-400' : 'text-amber-400'}`}>
                       {searchResult.score_comparison.kb_score_pct}
                     </div>
-                    <div className="text-[10px] text-slate-400 mb-2">Internal Evidence Confidence</div>
-                    <ScoreBar score={searchResult.score_comparison.kb_score} color={searchResult.score_comparison.kb_score >= 0.70 ? 'emerald' : 'orange'} />
-                    <div className={`mt-1.5 text-[10px] font-medium ${searchResult.internal_confidence.passes_threshold ? 'text-emerald-400' : 'text-amber-400'}`}>
-                      {searchResult.internal_confidence.passes_threshold ? '✓ Above 70% threshold' : '⚠ Below 70% → triggers web search'}
-                    </div>
+                    <div className="text-[10px] text-slate-400 mb-2">Reference relevance rubric</div>
+                    <ScoreBar score={searchResult.score_comparison.kb_score} color={searchResult.score_comparison.kb_score >= 0.75 ? 'emerald' : 'orange'} />
+                    <div className="mt-1.5 text-[10px] font-medium text-slate-400">Reference score only; not used for answer generation</div>
                   </div>
                   {/* Web */}
                   <div className={`p-3 rounded-xl border ${searchResult.evidence_selection.web_wins ? 'bg-cyan-950/30 border-cyan-700/40' : 'bg-[#0d0d1a] border-[#1a1a28]'}`}>
@@ -458,12 +640,12 @@ export const RAGInspectorPanel: React.FC = () => {
                       {searchResult.web_search.triggered ? searchResult.score_comparison.web_score_pct : 'N/A'}
                     </div>
                     <div className="text-[10px] text-slate-400 mb-2">
-                      {searchResult.web_search.triggered ? `${searchResult.web_search.results_count} results (SAP domains)` : 'Not triggered (KB ≥ 70%)'}
+                      {searchResult.web_search.triggered ? `${searchResult.web_search.results_count} results (SAP domains)` : 'Search did not complete'}
                     </div>
                     {searchResult.web_search.triggered ? (
                       <ScoreBar score={searchResult.score_comparison.web_score} color="cyan" />
                     ) : (
-                      <div className="text-[10px] text-slate-600">Web search only runs when KB confidence is 60-70%</div>
+                      <div className="text-[10px] text-slate-600">Answers use verified web evidence only.</div>
                     )}
                   </div>
                 </div>
@@ -509,12 +691,10 @@ export const RAGInspectorPanel: React.FC = () => {
                     {searchResult.internal_confidence.reason}
                   </div>
                 )}
-                {searchResult.internal_confidence.would_trigger_web_search && (
-                  <div className="mt-2 flex items-center gap-2 text-[11px] text-amber-300 bg-amber-950/30 border border-amber-800/30 rounded-lg px-3 py-2">
-                    <Globe className="w-3.5 h-3.5 shrink-0" />
-                    KB confidence ({searchResult.internal_confidence.confidence_pct}) below 70% → Web search was triggered
-                  </div>
-                )}
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-cyan-300 bg-cyan-950/30 border border-cyan-800/30 rounded-lg px-3 py-2">
+                  <Globe className="w-3.5 h-3.5 shrink-0" />
+                  Knowledge base is reference-only; every in-scope query triggers web search.
+                </div>
               </div>
 
               {/* Top Chunks */}

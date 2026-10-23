@@ -1,19 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowUpRight, MessageSquarePlus, Pin, PinOff, Settings2, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ProjectModal } from '../components/projects/ProjectModal';
-import { projectService } from '../services/projectService';
+import { apiDeleteProject, apiGetProjects, apiUpdateProject } from '../services/api';
 import type { Project } from '../types';
 
 export const ProjectPage: React.FC = () => {
   const { projectId = '' } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
 
-  const [projects, setProjects] = useState<Project[]>(() => projectService.getProjects());
+  const [projects, setProjects] = useState<Project[]>([]);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const project = projects.find((item) => item.id === projectId);
+
+  useEffect(() => {
+    apiGetProjects().then(setProjects).catch(() => setProjects([]));
+  }, [projectId]);
 
   if (!project) {
     return (
@@ -32,31 +36,31 @@ export const ProjectPage: React.FC = () => {
     );
   }
 
-  const renameProject = (values: { name: string; description?: string }) => {
+  const renameProject = async (values: { name: string; description?: string }) => {
     setError(null);
     try {
-      projectService.updateProject(projectId, values);
-      setProjects(projectService.getProjects());
+      const updated = await apiUpdateProject(projectId, values);
+      setProjects(current => current.map(item => item.id === projectId ? updated : item));
       setEditing(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update project.');
     }
   };
 
-  const removeProject = () => {
+  const removeProject = async () => {
     if (!window.confirm(`Delete "${project.name}"?`)) return;
     try {
-      projectService.deleteProject(projectId);
+      await apiDeleteProject(projectId);
       navigate('/app', { replace: true });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not delete project.');
     }
   };
 
-  const togglePin = () => {
+  const togglePin = async () => {
     try {
-      projectService.updateProject(projectId, { isPinned: !project.isPinned });
-      setProjects(projectService.getProjects());
+      const updated = await apiUpdateProject(projectId, { isPinned: !project.isPinned });
+      setProjects(current => current.map(item => item.id === projectId ? updated : item));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update project pin.');
@@ -105,7 +109,7 @@ export const ProjectPage: React.FC = () => {
         <div className="project-chat-heading">
           <div>
             <h2>Project Scope</h2>
-            <span>Connected to Clyptusap.ai RAG Knowledge</span>
+            <span>Connected to Clyptus.Ai RAG Knowledge</span>
           </div>
         </div>
 

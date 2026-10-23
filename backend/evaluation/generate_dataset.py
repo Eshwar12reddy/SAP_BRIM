@@ -333,7 +333,33 @@ def build_questions():
             "should_trigger_tavily": False
         })
 
+    # 10. Conflicting Sources & Architecture Nuances (10)
+    conflict_topics = [
+
+        ("Can I use transaction FD01 to create customer master records for SAP BRIM FI-CA in S/4HANA?", "FD01 is obsolete in S/4HANA; BP (Business Partner) is mandatory for Contract Accounts.", ["BP", "FD01", "Business Partner", "S/4HANA"]),
+        ("Should I update table DFKKKO or BSEG directly using SE16N &SAP_EDIT to fix a stuck FI-CA clearing?", "Direct DB modification is strictly forbidden in production; standard clearing reset (FP07) and document reversal (FP08) must be used.", ["SE16N", "&SAP_EDIT", "FP07", "FP08", "forbidden"]),
+        ("Can Convergent Charging 4.0 Core Tool logic be directly imported into SAP CC 2023 without mapping allowances?", "CC 2023 enforces updated allowance schema and requires catalog migration.", ["CC 2023", "Core Tool", "allowance", "compatibility"]),
+        ("Does SAP S/4HANA Cloud Public Edition support custom Z-tables for Billable Item Classes via SE11?", "Public Cloud enforces Clean Core developer extensibility; direct SE11 Z-tables are restricted in favor of Custom Business Objects.", ["Clean Core", "SE11", "Public Cloud", "extensibility"]),
+        ("Is standard SD billing (VF01) used to invoice Billable Items generated from SAP Convergent Charging?", "CI uses FKKBIX_BILL_M and FKKINV_M; SD VF01 does not handle high-volume CI Billable Items directly.", ["VF01", "FKKBIX_BILL_M", "FKKINV_M", "CI"]),
+        ("Can I execute dunning for BRIM contract accounts using transaction F150?", "F150 is for standard FI-AR; FI-CA contract accounts require FPVA proposal and FPVB activity runs.", ["F150", "FPVA", "FPVB", "FI-CA"]),
+        ("Does SAP Convergent Invoicing write open customer items directly into BSID instead of DFKKOP?", "CI posts subledger receivables into FI-CA table DFKKOP; standard FI-AR BSID is not used for contract accounts.", ["DFKKOP", "BSID", "FI-CA", "FI-AR"]),
+        ("Can provider contracts in SOM be replicated to CC using legacy CRM middleware IDocs?", "S/4HANA SOM uses Order Distribution Infrastructure (ODI) and web services; legacy IDoc CRM middleware is deprecated for CC provider contracts.", ["ODI", "CRM middleware", "IDocs", "replication"]),
+        ("Can I bypass reconciliation key closure in FPG4 by posting direct journal entries to GL account in FB50?", "Direct FB50 postings create reconciliation discrepancy between FI-CA DFKKAK totals records and General Ledger ACDOCA.", ["FPG4", "FB50", "DFKKAK", "reconciliation key"]),
+        ("Is table ACDOCA updated during every individual rated consumption item (CIT) in Convergent Charging?", "CC ratings create CITs/BITs in CI memory/staging; ACDOCA is only updated at GL transfer from FI-CA totals records.", ["ACDOCA", "CIT", "BIT", "GL transfer"])
+    ]
+    for q, ans, kws in conflict_topics:
+        questions.append({
+            "id": f"q_{len(questions)+1:03d}",
+            "category": "conflicting_sources",
+            "query": q,
+            "expected_source": "internal",
+            "reference_summary": ans,
+            "keywords": kws,
+            "should_trigger_tavily": False
+        })
+
     return questions
+
 
 def main():
     questions = build_questions()

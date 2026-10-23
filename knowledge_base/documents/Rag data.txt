@@ -1,0 +1,306 @@
+ARTIFICIAL INTELLIGENCE (AI)
+
+Artificial Intelligence (AI) is a branch of computer science that focuses on creating intelligent machines capable of performing tasks that normally require human intelligence. AI systems can learn from data, recognize patterns, solve problems, make decisions, understand natural language, and interact with humans. AI is used in healthcare, finance, education, transportation, agriculture, robotics, gaming, cybersecurity, and many other industries.
+
+MACHINE LEARNING (ML)
+
+Machine Learning is a subset of Artificial Intelligence. Instead of being explicitly programmed, machine learning models learn patterns from data. The learning process involves collecting data, preprocessing it, selecting features, training a model, evaluating its performance, and making predictions.
+
+Machine Learning is divided into three main categories:
+1. Supervised Learning
+2. Unsupervised Learning
+3. Reinforcement Learning
+
+Common supervised learning algorithms include:
+- Linear Regression
+- Logistic Regression
+- Decision Tree
+- Random Forest
+- Support Vector Machine (SVM)
+- K-Nearest Neighbors (KNN)
+- Naive Bayes
+
+Common unsupervised learning algorithms include:
+- K-Means Clustering
+- Hierarchical Clustering
+- DBSCAN
+- Principal Component Analysis (PCA)
+
+DEEP LEARNING
+
+Deep Learning is a subset of Machine Learning that uses Artificial Neural Networks with multiple hidden layers. Deep Learning models automatically learn complex features from data without manual feature engineering.
+
+Applications include:
+- Image Classification
+- Object Detection
+- Face Recognition
+- Speech Recognition
+- Language Translation
+- Medical Image Analysis
+- Autonomous Vehicles
+
+NEURAL NETWORKS
+
+A Neural Network consists of three main layers:
+1. Input Layer
+2. Hidden Layer(s)
+3. Output Layer
+
+Each neuron receives input values, applies weights and bias, uses an activation function, and produces an output. During training, weights are updated using backpropagation and an optimizer.
+
+CNN (CONVOLUTIONAL NEURAL NETWORK)
+
+CNN is a deep learning model specially designed for image processing tasks.
+
+CNN consists of:
+- Convolution Layer
+- ReLU Activation
+- Pooling Layer
+- Flatten Layer
+- Fully Connected Layer
+- Output Layer
+
+Applications:
+- Image Classification
+- Face Detection
+- Medical Imaging
+- Traffic Sign Recognition
+- Satellite Image Analysis
+
+Activation functions used in CNN:
+- ReLU
+- Sigmoid
+- Softmax
+- Tanh
+
+Loss functions:
+- Binary Crossentropy
+- Categorical Crossentropy
+- Sparse Categorical Crossentropy
+
+Optimizers:
+- SGD
+- Adam
+- RMSprop
+- Adagrad
+
+RNN (RECURRENT NEURAL NETWORK)
+
+RNN is designed for sequential data.
+
+Applications:
+- Text Prediction
+- Speech Recognition
+- Time Series Forecasting
+- Language Modeling
+
+LSTM
+
+Long Short-Term Memory (LSTM) is an improved version of RNN. It solves the vanishing gradient problem and can remember information for longer periods.
+
+Applications:
+- Chatbots
+- Machine Translation
+- Sentiment Analysis
+- Stock Prediction
+
+NATURAL LANGUAGE PROCESSING (NLP)
+
+Natural Language Processing enables computers to understand and generate human language.
+
+Applications:
+- Machine Translation
+- Chatbots
+- Sentiment Analysis
+- Text Classification
+- Text Summarization
+- Spam Detection
+- Question Answering
+
+TRANSFORMERS
+
+Transformers are deep learning architectures that process sequences using the attention mechanism.
+
+Types:
+- Encoder
+- Decoder
+- Encoder-Decoder
+
+Examples:
+- BERT
+- GPT
+- T5
+- Llama
+- Gemini
+
+EMBEDDINGS
+
+Embeddings are numerical vector representations of text, images, or other data. Similar information has similar vectors. Embeddings help AI systems understand semantic meaning instead of exact keyword matching.
+
+VECTOR DATABASES
+
+A Vector Database stores embeddings and performs similarity search.
+
+Popular Vector Databases:
+- ChromaDB
+- FAISS
+- Pinecone
+- Weaviate
+- Milvus
+
+Advantages:
+- Fast retrieval
+- Semantic search
+- Scalable storage
+- Efficient similarity matching
+
+LARGE LANGUAGE MODELS (LLMs)
+
+Large Language Models are trained on massive amounts of text data.
+
+Popular LLMs:
+- GPT
+- Gemini
+- Claude
+- Llama
+- Mistral
+
+Applications:
+- Text Generation
+- Code Generation
+- Translation
+- Question Answering
+- Summarization
+
+LANGCHAIN
+
+LangChain is a framework used to build AI applications using LLMs.
+
+Features:
+- Prompt Templates
+- Chains
+- Agents
+- Memory
+- Vector Store Integration
+- Document Loaders
+- Output Parsers
+
+RETRIEVAL-AUGMENTED GENERATION (RAG)
+
+RAG combines information retrieval with Large Language Models.
+
+Workflow:
+1. Load documents.
+2. Split documents into chunks.
+3. Generate embeddings.
+4. Store embeddings in a vector database.
+5. Convert the user's question into an embedding.
+6. Retrieve the most similar document chunks.
+7. Send the retrieved information to the LLM.
+8. Generate the final answer.
+
+Advantages:
+- More accurate answers
+- Uses private documents
+- Reduces hallucinations
+- Provides up-to-date information
+
+FASTAPI
+
+FastAPI is a modern Python framework for building REST APIs.
+
+Features:
+- High performance
+- Automatic API documentation
+- Data validation
+- Async support
+
+STREAMLIT
+
+Streamlit is a Python framework used to build interactive web applications for Machine Learning and AI projects.
+
+Features:
+- Easy UI creation
+- Data visualization
+- File upload
+- Model deployment
+
+DATABASES
+
+Common databases:
+- MySQL
+- PostgreSQL
+- MongoDB
+- SQLite
+- Oracle
+
+SQL Operations:
+- SELECT
+- INSERT
+- UPDATE
+- DELETE
+- JOIN
+- GROUP BY
+- ORDER BY
+
+PYTHON
+
+Python is one of the most popular programming languages for AI and Data Science.
+
+Popular libraries:
+- NumPy
+- Pandas
+- Matplotlib
+- Scikit-learn
+- TensorFlow
+- PyTorch
+- OpenCV
+
+DATA PREPROCESSING
+
+Steps:
+- Data Collection
+- Data Cleaning
+- Handling Missing Values
+- Encoding
+- Feature Scaling
+- Splitting Data
+- Model Training
+- Evaluation
+
+MODEL EVALUATION
+
+Common metrics:
+- Accuracy
+- Precision
+- Recall
+- F1 Score
+- ROC-AUC
+- Mean Squared Error (MSE)
+- Mean Absolute Error (MAE)
+
+CLOUD PLATFORMS
+
+Popular cloud platforms:
+- AWS
+- Microsoft Azure
+- Google Cloud Platform (GCP)
+- Oracle Cloud Infrastructure (OCI)
+
+Applications:
+- Model Deployment
+- Data Storage
+- Serverless Computing
+- AI Services
+
+CAREER ROLES
+
+Popular AI-related job roles:
+- Data Analyst
+- Data Scientist
+- Machine Learning Engineer
+- AI Engineer
+- NLP Engineer
+- Computer Vision Engineer
+- MLOps Engineer
+- Software Engineer

@@ -39,7 +39,7 @@ class RerankingService:
             return [], 0.0, False
 
         n = top_n or settings.RERANK_TOP_K
-        thresh = threshold or settings.SIMILARITY_THRESHOLD
+        thresh = settings.INTERNAL_EVIDENCE_THRESHOLD if threshold is None else threshold
         query_lower = query.lower()
         query_tokens = self._extract_query_tokens(query)
 
@@ -118,8 +118,9 @@ class RerankingService:
         for item in web_results:
             title = (item.get("title") or "").lower()
             snippet = (item.get("snippet") or "").lower()
+            extracted = (item.get("chunk_text") or item.get("content") or "").lower()
             domain = (item.get("domain") or "").lower()
-            combined = f"{title} {snippet}"
+            combined = f"{title} {snippet} {extracted}"
 
             # 1. Query token coverage
             matched_tokens = sum(1 for t in query_tokens if t in combined)
@@ -139,10 +140,18 @@ class RerankingService:
             phrase_boost = min(phrase_boost, 0.15)
 
             # 4. Domain authority weighting
-            domain_weight = 0.05 if "help.sap.com" in domain else (0.03 if "community.sap.com" in domain else 0.0)
+            domain_weight = (
+                0.05 if any(host in domain for host in ("help.sap.com", "learning.sap.com"))
+                else (0.03 if any(host in domain for host in ("community.sap.com", "blogs.sap.com")) else 0.0)
+            )
 
             # 5. Composite web relevance score (calibrated 0.0 to 1.0)
             raw_score = 0.55 * coverage + title_boost + phrase_boost + domain_weight
+            configured_priority = item.get("source_priority")
+            if configured_priority in (1, 2, 3):
+                # Small tie-breaker for the user's curated SAP pages; query
+                # relevance remains the main ranking signal.
+                raw_score += (4 - configured_priority) * 0.015
             final_web_score = max(0.0, min(1.0, round(raw_score, 4)))
 
             w_copy = dict(item)
@@ -150,8 +159,10 @@ class RerankingService:
             w_copy["rerank_score"] = final_web_score
             w_copy["vector_score"] = round(min(1.0, coverage + 0.1), 4)
             w_copy["keyword_score"] = round(coverage, 4)
-            # Standardize chunk_text for downstream LLM & grounding services
-            w_copy["chunk_text"] = f"{item.get('title', '')}: {item.get('snippet', '')}"
+            # Preserve extracted page text for answer generation and grounding.
+            w_copy["chunk_text"] = (
+                item.get("chunk_text") or f"{item.get('title', '')}: {item.get('snippet', '')}"
+            )
             scored_web.append(w_copy)
 
         scored_web.sort(key=lambda x: x["rerank_score"], reverse=True)
@@ -164,60 +175,37 @@ class RerankingService:
         query: str,
         kb_candidates: List[Dict[str, Any]],
         web_results: List[Dict[str, Any]],
-        threshold: float = None
+        threshold: float = None,
     ) -> Dict[str, Any]:
-        """
-        Compares scores between Knowledge Base and Web Search:
-        1. Evaluates whether query is present in internal RAG pipeline with sufficient evidence.
-        2. Reranks KB chunks and Web snippets with objective scoring.
-        3. Selects the higher scoring source to feed to the Groq LLM.
-        """
-        thresh = threshold or settings.SIMILARITY_THRESHOLD
-        top_kb_chunks, kb_score, has_sufficient_kb = self.rerank_kb(
-            query, kb_candidates, top_n=settings.RERANK_TOP_K, threshold=thresh
+        """Legacy adapter that now delegates to the strict 75-point source router."""
+        from backend.app.services.evidence_selection_service import EvidenceSelectionService
+
+        router = EvidenceSelectionService()
+        if threshold is not None:
+            router.internal_threshold = threshold
+        top_kb_chunks, _, _ = self.rerank_kb(
+            query, kb_candidates, top_n=settings.RERANK_TOP_K,
+            threshold=router.internal_threshold,
         )
-        top_web_results, web_score = self.rerank_web(
-            query, web_results, top_n=3
+        relevance = router.compute_internal_confidence(query, top_kb_chunks)
+        selection = router.select_strongest_evidence(
+            query, top_kb_chunks, web_results, relevance
         )
-
-        # Is the question present in the internal RAG knowledge base?
-        is_in_rag_pipeline = bool(has_sufficient_kb and kb_score >= thresh)
-
-        # Determine winner: which score is higher?
-        if is_in_rag_pipeline and kb_score >= web_score:
-            winner = "knowledge_base"
-            evidence = top_kb_chunks
-            winning_score = kb_score
-            reason = f"Internal Knowledge Base scored higher ({kb_score:.4f} >= {web_score:.4f})"
-        elif top_web_results and web_score >= 0.45:
-            winner = "web"
-            evidence = top_web_results
-            winning_score = web_score
-            if not is_in_rag_pipeline:
-                reason = f"Query was NOT found in internal RAG pipeline (KB score: {kb_score:.4f} < threshold {thresh:.2f}). Selected authoritative Web search (Web score: {web_score:.4f})."
-            else:
-                reason = f"Authoritative Web search scored higher ({web_score:.4f} > KB score {kb_score:.4f})."
-        elif is_in_rag_pipeline:
-            winner = "knowledge_base"
-            evidence = top_kb_chunks
-            winning_score = kb_score
-            reason = f"Internal Knowledge Base has sufficient evidence ({kb_score:.4f})."
-        else:
-            winner = "insufficient"
-            evidence = []
-            winning_score = max(kb_score, web_score)
-            reason = f"Insufficient evidence in both internal KB ({kb_score:.4f}) and Web search ({web_score:.4f})."
-
+        winner = selection["source_type"]
+        top_web_results, web_score = self.rerank_web(query, web_results, top_n=5)
         return {
             "winner": winner,
-            "is_in_rag_pipeline": is_in_rag_pipeline,
-            "kb_score": round(kb_score, 4),
+            "is_in_rag_pipeline": winner == "knowledge_base",
+            "kb_score": round(float(relevance.get("confidence", 0.0)), 4),
+            "kb_relevance_score": relevance.get("kb_relevance_score", 0.0),
+            "kb_threshold": round(router.internal_threshold * 100),
             "web_score": round(web_score, 4),
-            "winning_score": round(winning_score, 4),
-            "evidence": evidence,
+            "winning_score": round(float(selection.get("selected_evidence_quality", 0.0)), 4),
+            "evidence": selection.get("selected_passages", []),
             "top_kb_chunks": top_kb_chunks,
             "top_web_results": top_web_results,
-            "reason": reason
+            "reason": selection.get("selection_summary", ""),
+            "fallback_reason": selection.get("fallback_reason"),
         }
 
     def rerank(

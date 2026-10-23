@@ -38,6 +38,10 @@ class EmbeddingService:
             self._model_failed = True
             return None
 
+    def warm_up(self) -> None:
+        """Load and retain the configured embedding model before serving requests."""
+        self._get_model()
+
     def _fallback_embed(self, text: str) -> List[float]:
         """
         Deterministic, normalized dense projection (dim=384) fallback

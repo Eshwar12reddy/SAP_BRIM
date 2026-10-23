@@ -151,7 +151,7 @@ export const AuthProvider: React.FC<{
       const guestUser: User = {
         id: 'usr_guest_' + Date.now().toString(36),
         name: 'SAP Consultant',
-        email: 'consultant@clyptusap.ai',
+        email: 'consultant@clyptus.ai',
         is_admin: false,
         isGuest: true,
         profileCompleted: true,
@@ -168,7 +168,7 @@ export const AuthProvider: React.FC<{
         ? { ...prev, ...updates, profileCompleted: true }
         : {
             id: 'usr_' + Date.now().toString(36),
-            email: 'user@clyptusap.ai',
+            email: 'user@clyptus.ai',
             name: updates.name,
             dateOfBirth: updates.dateOfBirth,
             avatar: updates.avatar,

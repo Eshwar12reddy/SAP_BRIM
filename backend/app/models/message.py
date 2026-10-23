@@ -13,8 +13,12 @@ class Message(Base):
     content = Column(Text, nullable=False)
     source_type = Column(String(50), nullable=True)  # 'knowledge_base', 'web', 'refusal', 'error'
     grounding_score = Column(Float, nullable=True)
+    feedback = Column(String(20), nullable=True)  # 'up', 'down'
+    feedback_comment = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     chat = relationship("Chat", back_populates="messages")
     citations = relationship("Citation", back_populates="message", cascade="all, delete-orphan")
     web_sources = relationship("WebSource", back_populates="message", cascade="all, delete-orphan")
+    visual_assets = relationship("VisualAsset", back_populates="message", cascade="all, delete-orphan")
+    attachments = relationship("ChatAttachment", back_populates="message", cascade="all, delete-orphan")

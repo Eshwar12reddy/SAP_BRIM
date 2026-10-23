@@ -1,0 +1,279 @@
+import sqlite3
+from pathlib import Path
+
+from fastembed import TextEmbedding
+from sqlalchemy import MetaData, inspect, text
+
+from backend.app.database import get_engine
+
+SOURCE = Path("backend/sap_assistant_clean.db")
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+BATCH_SIZE = 64
+
+TABLE_ORDER = [
+    "users", "documents", "chats", "document_chunks", "messages",
+    "citations", "web_sources", "chat_attachments", "visual_assets",
+    "conversation_memories", "conversation_summaries",
+    "sap_scenario_memories", "projects",
+]
+
+MESSAGE_EXTRA_COLUMNS = {
+    "kb_grounding_score": "FLOAT",
+    "web_grounding_score": "FLOAT",
+    "grounding_status": "VARCHAR(50)",
+    "verification_status": "VARCHAR(50)",
+    "grounding_details": "TEXT",
+    "image_url": "VARCHAR(512)",
+    "image_caption": "TEXT",
+    "image_status": "VARCHAR(50)",
+    "image_type": "VARCHAR(100)",
+}
+
+
+def embed_batch(model, texts):
+    return [
+        [float(x) for x in vector]
+        for vector in model.embed(texts)
+    ]
+
+
+def memory_text(table, row):
+    if table in ("conversation_memories", "conversation_summaries"):
+        return row["summary"] or ""
+    if table == "sap_scenario_memories":
+        return " ".join(
+            value for value in (
+                row["scenario_title"] or "",
+                row["symptoms"] or "",
+            ) if value
+        )
+    return row["chunk_text"] or ""
+
+
+def main():
+    if not SOURCE.is_file():
+        raise FileNotFoundError(f"SQLite source not found: {SOURCE}")
+
+    source_db = sqlite3.connect(
+        f"file:{SOURCE.resolve().as_posix()}?mode=ro", uri=True
+    )
+    source_db.row_factory = sqlite3.Row
+    engine = get_engine()
+
+    try:
+        missing = set(TABLE_ORDER) - {
+            row[0] for row in source_db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if missing:
+            raise RuntimeError(f"Missing source tables: {sorted(missing)}")
+
+        # Fail closed if the destination has any existing application data.
+        with engine.connect() as conn:
+            inspector = inspect(conn)
+            missing_pg = set(TABLE_ORDER) - set(inspector.get_table_names())
+            if missing_pg:
+                raise RuntimeError(
+                    f"Missing PostgreSQL tables: {sorted(missing_pg)}"
+                )
+            counts = {
+                table: conn.execute(
+                    text(f'SELECT COUNT(*) FROM "{table}"')
+                ).scalar_one()
+                for table in TABLE_ORDER
+            }
+        if any(counts.values()):
+            raise RuntimeError(
+                "PostgreSQL is not empty; no data was copied. "
+                f"Counts: {counts}"
+            )
+
+        # Add historical message fields. This DDL is separate from the
+        # migration transaction, so these columns may remain if migration
+        # later fails; they are nullable and safe for the existing app.
+        with engine.begin() as conn:
+            existing = {
+                c["name"] for c in inspect(conn).get_columns("messages")
+            }
+            for name, sql_type in MESSAGE_EXTRA_COLUMNS.items():
+                if name not in existing:
+                    conn.execute(text(
+                        f'ALTER TABLE messages ADD COLUMN "{name}" {sql_type}'
+                    ))
+
+        inspector = inspect(engine)
+        metadata = MetaData()
+        metadata.reflect(bind=engine, only=TABLE_ORDER)
+
+        expected = {}
+        for table in TABLE_ORDER:
+            source_cols = {
+                row[1] for row in source_db.execute(
+                    f'PRAGMA table_info("{table}")'
+                )
+            }
+            target_cols = {
+                col["name"] for col in inspector.get_columns(table)
+            }
+            missing_cols = source_cols - target_cols
+            if missing_cols:
+                raise RuntimeError(
+                    f"{table} target missing columns: {sorted(missing_cols)}"
+                )
+            expected[table] = source_db.execute(
+                f'SELECT COUNT(*) FROM "{table}"'
+            ).fetchone()[0]
+
+        # One legacy assistant message points to a nonexistent chat.
+        # Exclude it from the PostgreSQL copy, preserving the SQLite source.
+        orphan_message_id = "0189c2a9-f0e9-4542-9785-b4a526ee1fbb"
+        orphan_count = source_db.execute(
+            "SELECT COUNT(*) FROM messages WHERE id = ? AND NOT EXISTS "
+            "(SELECT 1 FROM chats WHERE chats.id = messages.chat_id)",
+            (orphan_message_id,),
+        ).fetchone()[0]
+        if orphan_count != 1:
+            raise RuntimeError(
+                "Expected exactly one known orphan message; found "
+                f"{orphan_count}. No migration started."
+            )
+        expected["messages"] -= 1
+        print(
+            "Preserving source SQLite unchanged; excluding one orphan "
+            f"message from PostgreSQL copy: {orphan_message_id}"
+        )
+
+        print(f"Loading embedding model: {MODEL_NAME}")
+        model = TextEmbedding(model_name=MODEL_NAME)
+        if len(embed_batch(model, ["SAP BRIM migration check"])[0]) != 384:
+            raise RuntimeError("Embedding model did not return 384 dimensions")
+        print("Embedding model ready.")
+
+        copied = {table: 0 for table in TABLE_ORDER}
+
+        # All row inserts and all verification are in one transaction.
+        with engine.begin() as conn:
+            for table in TABLE_ORDER:
+                print(f"Migrating {table}: {expected[table]} rows")
+                if table == "messages":
+                    cursor = source_db.execute(
+                        'SELECT * FROM messages WHERE id <> ?',
+                        ("0189c2a9-f0e9-4542-9785-b4a526ee1fbb",),
+                    )
+                else:
+                    cursor = source_db.execute(f'SELECT * FROM "{table}"')
+                source_cols = [d[0] for d in cursor.description]
+
+                while True:
+                    batch = cursor.fetchmany(BATCH_SIZE)
+                    if not batch:
+                        break
+
+                    records = [
+                        dict(zip(source_cols, tuple(row))) for row in batch
+                    ]
+
+                    if table == "document_chunks":
+                        # PostgreSQL text cannot contain NUL bytes.
+                        # Sanitize only the PostgreSQL copy; SQLite stays unchanged.
+                        for record in records:
+                            for field in (
+                                "document_name", "section",
+                                "chunk_text", "metadata_json"
+                            ):
+                                value = record.get(field)
+                                if isinstance(value, str) and chr(0) in value:
+                                    record[field] = value.replace(chr(0), " ")
+
+                        vectors = embed_batch(
+                            model, [r["chunk_text"] or "" for r in records]
+                        )
+                        for record, vector in zip(records, vectors):
+                            record["embedding"] = vector
+
+                    elif table in (
+                        "conversation_memories",
+                        "conversation_summaries",
+                        "sap_scenario_memories",
+                    ):
+                        indices = [
+                            i for i, r in enumerate(records)
+                            if r.get("embedding") is not None
+                        ]
+                        texts_to_embed = [
+                            memory_text(table, records[i]) for i in indices
+                        ]
+                        vectors = embed_batch(model, texts_to_embed)
+                        for i, vector in zip(indices, vectors):
+                            records[i]["embedding"] = vector
+
+                    conn.execute(metadata.tables[table].insert(), records)
+                    copied[table] += len(records)
+
+                print(f"  Staged {copied[table]} rows")
+
+            print("\nVerifying row counts before commit...")
+            failed = False
+            for table in TABLE_ORDER:
+                actual = conn.execute(
+                    text(f'SELECT COUNT(*) FROM "{table}"')
+                ).scalar_one()
+                print(f"{table}: source={expected[table]}, target={actual}")
+                if actual != expected[table]:
+                    failed = True
+
+            invalid = conn.execute(text("""
+                SELECT COUNT(*) FROM document_chunks
+                WHERE embedding IS NULL OR vector_dims(embedding) <> 384
+            """)).scalar_one()
+            print(f"Invalid chunk embeddings: {invalid}")
+            if invalid:
+                failed = True
+
+            # Exact comparison of all source chunk IDs and chunk text.
+            source_cursor = source_db.execute(
+                "SELECT id, chunk_text FROM document_chunks ORDER BY id"
+            )
+            target_cursor = conn.execute(text(
+                "SELECT id, chunk_text FROM document_chunks ORDER BY id"
+            ))
+            compared = 0
+            while True:
+                src = source_cursor.fetchmany(256)
+                dst = target_cursor.fetchmany(256)
+                if not src and not dst:
+                    break
+                if len(src) != len(dst):
+                    failed = True
+                    break
+                for original, migrated in zip(src, dst):
+                    original_text = original["chunk_text"]
+                    if original_text is not None:
+                        original_text = original_text.replace(chr(0), " ")
+                    if original["id"] != migrated[0] or original_text != migrated[1]:
+                        print(f"Chunk mismatch: {original['id']}")
+                        failed = True
+                        break
+                    compared += 1
+                if failed:
+                    break
+
+            print(f"Chunk ID/text matches: {compared}")
+            if compared != expected["document_chunks"]:
+                failed = True
+
+            if failed:
+                raise RuntimeError(
+                    "Verification failed; all row inserts will roll back."
+                )
+
+        print("\nSUCCESS: migration committed and verified.")
+
+    finally:
+        source_db.close()
+        engine.dispose()
+
+
+if __name__ == "__main__":
+    main()

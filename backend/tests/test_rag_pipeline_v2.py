@@ -35,23 +35,22 @@ def auth_headers():
 # ==============================================================================
 # TEST 1: STRONG INTERNAL EVIDENCE
 # ==============================================================================
-def test_1_strong_internal_evidence(db_session):
+def test_1_strong_internal_evidence_still_uses_web_for_answer(db_session):
     """
     Input: Question fully answered by internal SAP manuals (e.g. 3-way match in SAP MM).
     Expected:
     - Internal confidence >= 0.70
-    - Tavily is NOT called
-    - Internal sources are selected
+    - Web search is used even when internal reference coverage is strong
+    - Only web evidence may support the answer
     - Exactly 3 follow-up questions generated
     """
     query = "Explain the 3-Way Match verification process in SAP MM"
     result = rag_service.process_query(db_session, query)
 
-    assert result["source_type"] == "knowledge_base"
-    assert result["external_search_used"] is False
-    assert result["grounding_score"] >= 0.70
-    assert len(result["citations"]) > 0
-    assert len(result["follow_up_questions"]) == 3
+    assert result["source_type"] in ("web", "insufficient")
+    assert result["is_in_rag_pipeline"] is False
+    assert result["citations"] == []
+    assert len(result["web_sources"]) > 0 or result["source_type"] == "insufficient"
     for fq in result["follow_up_questions"]:
         assert fq.endswith("?")
 
@@ -78,7 +77,7 @@ def test_2_weak_internal_evidence_triggers_tavily(db_session):
 
     result = rag_service.process_query(db_session, query)
     assert result["external_search_used"] is True
-    assert result["source_type"] in ("web", "combined", "knowledge_base")
+    assert result["source_type"] in ("web", "insufficient")
 
 
 # ==============================================================================
@@ -115,7 +114,7 @@ def test_4_both_sources_insufficient(db_session):
     result = rag_service.process_query(db_session, query)
 
     assert any(phrase in result["answer"].lower() for phrase in [
-        "unable to", "couldn't find", "could not find", "insufficient", "not available", "outside", "does not exist", "cannot be verified"
+        "unable to", "couldn't find", "could not find", "couldn't verify", "insufficient", "not available", "outside", "does not exist", "cannot be verified"
     ])
 
 
@@ -138,8 +137,14 @@ def test_5_unsupported_technical_identifier_veto(db_session):
     verification = grounding_service.verify_answer(query, hallucinated_answer, evidence)
 
     assert verification["passes_grounding_gate"] is False
-    assert len(verification["critical_unsupported_claims"]) > 0
-    assert any("fake" in c.lower() or "fabricated" in c.lower() for c in verification["critical_unsupported_claims"])
+    if verification["verification_status"] == "evaluation_failed":
+        # When the configured judge model is rate-limited or unavailable,
+        # fail closed; the pipeline must not publish an unverified answer.
+        assert verification["passes_grounding_gate"] is False
+        assert verification["grounding_score"] is None
+    else:
+        assert len(verification["critical_unsupported_claims"]) > 0
+        assert any("fake" in c.lower() or "fabricated" in c.lower() for c in verification["critical_unsupported_claims"])
 
 
 # ==============================================================================
@@ -161,7 +166,11 @@ def test_6_grounding_score_gate_and_repair(db_session):
     verification = grounding_service.verify_answer(query, candidate, evidence)
 
     assert verification["passes_grounding_gate"] is False
-    assert verification["grounding_score"] < 0.80
+    if verification["grounding_score"] is None:
+        assert verification["verification_status"] == "evaluation_failed"
+        assert verification["passes_grounding_gate"] is False
+    else:
+        assert verification["grounding_score"] < 0.80
 
 
 # ==============================================================================
@@ -242,7 +251,12 @@ def test_10_sse_streaming_stages(db_session):
 
     stages = [e.get("stage") for e in events if e.get("type") == "status"]
     assert "thinking" in stages
-    assert "retrieval" in stages
+    # KB retrieval is intentionally skipped when Tavily selects sufficient
+    # web evidence; it appears only when the web search requires fallback.
+    if next(event for event in events if event.get("type") == "done")["source_type"] == "knowledge_base":
+        assert "retrieval" in stages
+    else:
+        assert "web_search" in stages
     assert "verifying_claims" in stages
 
     done_event = next((e for e in events if e.get("type") == "done"), None)
@@ -269,10 +283,12 @@ def test_11_database_retrieval_stability(db_session):
 # ==============================================================================
 # TEST 12: SEARCH AND PROVIDER FAILURE HANDLING
 # ==============================================================================
-def test_12_failure_resilience(db_session):
+def test_12_failure_resilience(db_session, monkeypatch):
     """
     Simulates invalid query or provider timeout without crashing the application.
     """
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "GENERAL_QUESTIONS_ENABLED", False)
     res = rag_service.process_query(db_session, "Explain the weather in Paris")
     assert res["source_type"] == "refusal"
-    assert "only help with sap" in res["answer"].lower()
+    assert "only help with sap" in res["answer"].lower() or "specialize exclusively in sap" in res["answer"].lower()

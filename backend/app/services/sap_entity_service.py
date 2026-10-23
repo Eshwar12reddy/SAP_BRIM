@@ -198,6 +198,274 @@ SAP_TECHNICAL_ENTITIES: Dict[str, Dict[str, Any]] = {
         "component": "SAP Customizing",
         "description": "Customizing - Edit Project / SAP Reference IMG.",
         "standard_use": "Central entry transaction for all SAP configuration and IMG paths."
+    },
+    # SAP BRIM CI & FI-CA Mass Execution & Diagnostics
+    "fkkbix_bill_m": {
+        "name": "FKKBIX_BILL_M",
+        "type": "tcode",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Mass Billing Run in Convergent Invoicing.",
+        "standard_use": "Aggregates billable items into billing documents."
+    },
+    "fkkbix_bill_s": {
+        "name": "FKKBIX_BILL_S",
+        "type": "tcode",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Single Account Billing Run in Convergent Invoicing.",
+        "standard_use": "Executes single contract account billing simulation or update run."
+    },
+    "fkkbix_inv_m": {
+        "name": "FKKBIX_INV_M",
+        "type": "tcode",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Mass Invoicing Run in Convergent Invoicing.",
+        "standard_use": "Executes batch invoicing creating legal invoicing documents and FI-CA postings."
+    },
+    "fkkinv_m": {
+        "name": "FKKINV_M",
+        "type": "tcode",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Mass Invoicing of Billing Documents.",
+        "standard_use": "Processes invoicing orders into invoicing documents."
+    },
+    "fkkbix_bill_rev": {
+        "name": "FKKBIX_BILL_REV",
+        "type": "tcode",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Reverse Billing Document.",
+        "standard_use": "Reverses CI billing documents and restores BITs to billable status."
+    },
+    "fkkinv_rev": {
+        "name": "FKKINV_REV",
+        "type": "tcode",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Reverse Invoicing Document.",
+        "standard_use": "Reverses invoicing documents and creates reversal document in FI-CA."
+    },
+    "fkkbix_bit_exc": {
+        "name": "FKKBIX_BIT_EXC",
+        "type": "tcode",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Exception Handling for Billable Items.",
+        "standard_use": "Manages excepted BITs and releases them for reprocessing."
+    },
+    "fpy1": {
+        "name": "FPY1",
+        "type": "tcode",
+        "component": "SAP FI-CA",
+        "description": "Automatic Payment Run in FI-CA.",
+        "standard_use": "Mass payment program executing direct debits, bank transfers, and automated clearing."
+    },
+    "fp08": {
+        "name": "FP08",
+        "type": "tcode",
+        "component": "SAP FI-CA",
+        "description": "Reverse Document in FI-CA.",
+        "standard_use": "Reverses posted FI-CA documents with reversal reason."
+    },
+    "fp07": {
+        "name": "FP07",
+        "type": "tcode",
+        "component": "SAP FI-CA",
+        "description": "Reset Clearing in FI-CA.",
+        "standard_use": "Resets clearing status on cleared line items, reopening them."
+    },
+    "fpg1": {
+        "name": "FPG1",
+        "type": "tcode",
+        "component": "SAP FI-CA",
+        "description": "Close Reconciliation Key in FI-CA.",
+        "standard_use": "Closes open FIKEY to prepare totals records for G/L transfer."
+    },
+    "fpg4": {
+        "name": "FPG4",
+        "type": "tcode",
+        "component": "SAP FI-CA",
+        "description": "Transfer Totals Records to General Ledger.",
+        "standard_use": "Transfers FI-CA totals records from DFKKAK into General Ledger (ACDOCA/BSEG)."
+    },
+    "fpg0": {
+        "name": "FPG0",
+        "type": "tcode",
+        "component": "SAP FI-CA",
+        "description": "Display Reconciliation Key.",
+        "standard_use": "Inspects status and totals records of FI-CA reconciliation key."
+    },
+    "fpo1": {
+        "name": "FPO1",
+        "type": "tcode",
+        "component": "SAP FI-CA",
+        "description": "Display Account Balance in FI-CA.",
+        "standard_use": "Displays contract account balance, cleared items, and open items."
+    },
+    "crmd_order": {
+        "name": "CRMD_ORDER",
+        "type": "tcode",
+        "component": "SAP SOM (CRM/S4)",
+        "description": "Maintain Transaction / Provider Order / Subscription Contract.",
+        "standard_use": "Order and contract maintenance transaction in SAP Subscription Order Management."
+    },
+    "slg1": {
+        "name": "SLG1",
+        "type": "tcode",
+        "component": "SAP Basis / Application Log",
+        "description": "Application Log: Display Logs.",
+        "standard_use": "Displays application logs for objects such as CRM_ORDER, ODI, FKKBIX, and FI-CA."
+    },
+    "sm37": {
+        "name": "SM37",
+        "type": "tcode",
+        "component": "SAP Basis",
+        "description": "Overview of Job Selection.",
+        "standard_use": "Monitors background job status, execution logs, and spool outputs."
+    },
+    "sm58": {
+        "name": "SM58",
+        "type": "tcode",
+        "component": "SAP Basis / RFC",
+        "description": "Asynchronous RFC Error Log.",
+        "standard_use": "Monitors transactional RFC calls (e.g. CC to CI charged item transfer)."
+    },
+    "smq1": {
+        "name": "SMQ1",
+        "type": "tcode",
+        "component": "SAP Basis / qRFC",
+        "description": "qRFC Monitor (Outbound Queue).",
+        "standard_use": "Monitors and troubleshoots outbound queued RFC processing."
+    },
+    "smq2": {
+        "name": "SMQ2",
+        "type": "tcode",
+        "component": "SAP Basis / qRFC",
+        "description": "qRFC Monitor (Inbound Queue).",
+        "standard_use": "Monitors and troubleshoots inbound queued RFC processing."
+    },
+    "sm12": {
+        "name": "SM12",
+        "type": "tcode",
+        "component": "SAP Basis",
+        "description": "Display and Delete Lock Entries.",
+        "standard_use": "Inspects enqueue database locks on contract accounts, orders, and tables."
+    },
+    "se93": {
+        "name": "SE93",
+        "type": "tcode",
+        "component": "SAP Basis",
+        "description": "Maintain Transaction Codes.",
+        "standard_use": "Displays transaction code attributes and linked programs."
+    },
+    "se11": {
+        "name": "SE11",
+        "type": "tcode",
+        "component": "SAP Basis",
+        "description": "ABAP Dictionary Maintenance.",
+        "standard_use": "Inspects table structures, fields, and domain values."
+    },
+    # Verified Database Tables
+    "dfkkbixbit0": {
+        "name": "DFKKBIXBIT0",
+        "type": "table",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Raw Billable Items Table.",
+        "key_fields": ["MANDT", "BITNUMBER", "BITCAT", "BITSTATUS"]
+    },
+    "dfkkbixbit2": {
+        "name": "DFKKBIXBIT2",
+        "type": "table",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Billable Items (Billable Status) Table.",
+        "key_fields": ["MANDT", "BITNUMBER", "BITCAT", "BITSTATUS"]
+    },
+    "dfkkbixbit4": {
+        "name": "DFKKBIXBIT4",
+        "type": "table",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Billed Billable Items Table.",
+        "key_fields": ["MANDT", "BITNUMBER", "BITCAT", "BITSTATUS"]
+    },
+    "dfkkinvdoc_h": {
+        "name": "DFKKINVDOC_H",
+        "type": "table",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Invoicing Document Header Table.",
+        "key_fields": ["MANDT", "INVDOCNO", "GPART", "VKONT", "DATE_FROM"]
+    },
+    "dfkkinvdoc_i": {
+        "name": "DFKKINVDOC_I",
+        "type": "table",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Invoicing Document Items Table.",
+        "key_fields": ["MANDT", "INVDOCNO", "INVDOCITEM", "BETRW"]
+    },
+    "dfkkinv_ord": {
+        "name": "DFKKINV_ORD",
+        "type": "table",
+        "component": "SAP Convergent Invoicing (CI)",
+        "description": "Invoicing Orders Trigger Table.",
+        "key_fields": ["MANDT", "VKONT", "GPART", "SRCDOCTYPE", "SRCDOCNO"]
+    },
+    "dfkkak": {
+        "name": "DFKKAK",
+        "type": "table",
+        "component": "SAP FI-CA",
+        "description": "FI-CA Reconciliation Key Header Table.",
+        "key_fields": ["MANDT", "FIKEY", "FIKST", "BUDAT"]
+    },
+    "dfkksum": {
+        "name": "DFKKSUM",
+        "type": "table",
+        "component": "SAP FI-CA",
+        "description": "FI-CA Totals Records for G/L Transfer Table.",
+        "key_fields": ["MANDT", "FIKEY", "BUKRS", "HKONT", "BETRW"]
+    },
+    "fkkmako": {
+        "name": "FKKMAKO",
+        "type": "table",
+        "component": "SAP FI-CA",
+        "description": "FI-CA Dunning History Header Table.",
+        "key_fields": ["MANDT", "LAUFD", "LAUFI", "GPART", "VKONT"]
+    },
+    "fkkmaze": {
+        "name": "FKKMAZE",
+        "type": "table",
+        "component": "SAP FI-CA",
+        "description": "FI-CA Dunning History Line Items Table.",
+        "key_fields": ["MANDT", "LAUFD", "LAUFI", "GPART", "VKONT", "OPBEL"]
+    },
+    "acdoca": {
+        "name": "ACDOCA",
+        "type": "table",
+        "component": "SAP S/4HANA Finance",
+        "description": "Universal Journal Entry Line Items Table.",
+        "key_fields": ["RCLNT", "RLDNR", "RBUKRS", "GJAHR", "BELNR", "DOCLN"]
+    },
+    "bseg": {
+        "name": "BSEG",
+        "type": "table",
+        "component": "SAP Financial Accounting (FI)",
+        "description": "Accounting Document Segment Table.",
+        "key_fields": ["MANDT", "BUKRS", "BELNR", "GJAHR", "BUZEI"]
+    },
+    "bkpf": {
+        "name": "BKPF",
+        "type": "table",
+        "component": "SAP Financial Accounting (FI)",
+        "description": "Accounting Document Header Table.",
+        "key_fields": ["MANDT", "BUKRS", "BELNR", "GJAHR"]
+    },
+    "crmd_orderadm_h": {
+        "name": "CRMD_ORDERADM_H",
+        "type": "table",
+        "component": "SAP SOM (CRM)",
+        "description": "Business Transaction Header Table.",
+        "key_fields": ["CLIENT", "GUID", "OBJECT_ID", "PROCESS_TYPE"]
+    },
+    "crmd_orderadm_i": {
+        "name": "CRMD_ORDERADM_I",
+        "type": "table",
+        "component": "SAP SOM (CRM)",
+        "description": "Business Transaction Item Table.",
+        "key_fields": ["CLIENT", "GUID", "HEADER", "NUMBER_INT"]
     }
 }
 

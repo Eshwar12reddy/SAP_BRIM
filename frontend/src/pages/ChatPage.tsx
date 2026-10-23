@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Message } from '../types';
 import { ChatMessage } from '../components/chat/ChatMessage';
 import { ChatInput } from '../components/chat/ChatInput';
 import { WelcomeScreen } from '../components/chat/WelcomeScreen';
 import { AuthLimitModal } from '../components/chat/AuthLimitModal';
+import { RightSideScrollButton } from '../components/chat/RightSideScrollButton';
 import { useAuth } from '../context/AuthContext';
 
 import {
@@ -20,12 +21,28 @@ import {
 const GUEST_QUERY_LIMIT = 2;
 const GUEST_COUNT_KEY = 'clyptus_trial_query_count';
 
+const SUGGESTION_CHIPS = [
+  {
+    label: 'SOM Provider Contracts',
+    prompt: 'How does provider contract replication work between SAP SOM and CC?',
+  },
+  {
+    label: 'CI Billable Items (BIT)',
+    prompt: 'Explain Billable Items (BIT) creation, billing, and invoicing in CI.',
+  },
+  {
+    label: 'FI-CA Account Balance',
+    prompt: 'How do I analyze contract account balances and clearing in FPL9?',
+  },
+];
+
 export const ChatPage: React.FC = () => {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [editDraft, setEditDraft] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [streamingStage, setStreamingStage] = useState<string | null>(null);
@@ -40,13 +57,14 @@ export const ChatPage: React.FC = () => {
     }
   });
 
-  const isTrialUser = !user || user.isGuest || user.email === 'consultant@clyptusap.ai';
+  const isTrialUser = !user || user.isGuest || user.email === 'consultant@clyptus.ai' || user.email === 'consultant@clyptusap.ai';
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastUserPromptRef = useRef<string>('');
   const justCreatedChatIdRef = useRef<string | null>(null);
+  const currentStreamingChatIdRef = useRef<string | null>(null);
 
   const isAutoScrollingRef = useRef(false);
 
@@ -83,7 +101,7 @@ export const ChatPage: React.FC = () => {
 
   // Load messages when conversationId changes
   useEffect(() => {
-    if (conversationId && justCreatedChatIdRef.current === conversationId) {
+    if (conversationId && (justCreatedChatIdRef.current === conversationId || currentStreamingChatIdRef.current === conversationId)) {
       // Don't reset state if this navigation was triggered by creating a chat for the current stream
       justCreatedChatIdRef.current = null;
       return;
@@ -101,7 +119,10 @@ export const ChatPage: React.FC = () => {
 
     if (conversationId) {
       apiGetMessages(conversationId)
-        .then(setMessages)
+        .then((msgs) => {
+          console.log('[ChatPage] Loaded messages for chat:', conversationId, msgs.length);
+          setMessages(msgs);
+        })
         .catch((err) => {
           console.error('Failed to load messages for chat:', conversationId, err);
           setMessages([]);
@@ -116,6 +137,7 @@ export const ChatPage: React.FC = () => {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    currentStreamingChatIdRef.current = null;
     setIsLoading(false);
 
     // Preserve partially generated text in chat history and database
@@ -145,7 +167,7 @@ export const ChatPage: React.FC = () => {
     setStreamingMeta(null);
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, attachmentIds?: string[], attachedItems?: any[]) => {
     // Check trial limit for free preview users
     if (isTrialUser && trialCount >= GUEST_QUERY_LIMIT) {
       setShowAuthModal(true);
@@ -164,7 +186,9 @@ export const ChatPage: React.FC = () => {
     // If no active chat in route, create one and navigate
     if (!targetChatId) {
       try {
-        const title = content.length > 35 ? content.slice(0, 35) + '...' : content;
+        const title = content.trim().length > 0
+          ? (content.length > 35 ? content.slice(0, 35) + '...' : content)
+          : (attachedItems && attachedItems.length > 0 ? `Screenshot: ${attachedItems[0].filename}` : 'SAP Troubleshooting');
         const newChat = await apiCreateChat(title);
         targetChatId = newChat.id;
         justCreatedChatIdRef.current = newChat.id;
@@ -184,6 +208,7 @@ export const ChatPage: React.FC = () => {
       created_at: new Date().toISOString(),
       citations: [],
       web_sources: [],
+      attachments: attachedItems || [],
     };
 
     setMessages((prev) => [...prev, tempUserMsg]);
@@ -192,6 +217,7 @@ export const ChatPage: React.FC = () => {
     setStreamingStage('Thinking...');
     setStreamingMeta(null);
     setIsUserScrolledUp(false);
+    currentStreamingChatIdRef.current = targetChatId;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -217,11 +243,23 @@ export const ChatPage: React.FC = () => {
         onDone: (doneMeta: StreamMetadata, finalText?: string) => {
           setIsLoading(false);
           abortControllerRef.current = null;
+          currentStreamingChatIdRef.current = null;
           const effectiveMeta = { ...streamMetaRef, ...doneMeta };
-          const resolvedContent =
-            finalText && finalText.trim().length > 0
-              ? finalText
-              : accumulatedText || '';
+
+          // Determine the final resolved text without ever discarding an existing answer
+          const isInsufficientBoilerplate = (text?: string) =>
+            text ? text.includes("I couldn't verify a reliable answer") : false;
+
+          let resolvedContent = '';
+          if (finalText && finalText.trim().length > 0 && !isInsufficientBoilerplate(finalText)) {
+            resolvedContent = finalText;
+          } else if (accumulatedText && accumulatedText.trim().length > 0) {
+            resolvedContent = accumulatedText;
+          } else {
+            resolvedContent = finalText || accumulatedText || '';
+          }
+
+          console.log('[ChatPage] onDone resolvedContent length:', resolvedContent.length, 'chat:', targetChatId, 'msgId:', effectiveMeta.message_id);
 
           const finalAssistantMsg: Message = {
             id: effectiveMeta.message_id || `msg-${Date.now()}`,
@@ -229,9 +267,20 @@ export const ChatPage: React.FC = () => {
             role: 'assistant',
             content: resolvedContent,
             source_type: effectiveMeta.source_type || 'knowledge_base',
+            selected_source: effectiveMeta.selected_source,
             grounding_score: effectiveMeta.grounding_score,
+            kb_grounding_score: effectiveMeta.kb_grounding_score,
+            web_grounding_score: effectiveMeta.web_grounding_score,
+            grounding_status: effectiveMeta.grounding_status,
+            grounding_method: effectiveMeta.grounding_method,
+            grounding_summary: effectiveMeta.grounding_summary,
+            grounding_claims: effectiveMeta.grounding_claims,
             verification_status: effectiveMeta.verification_status,
             internal_evidence_confidence: effectiveMeta.internal_evidence_confidence,
+            kb_relevance_score: effectiveMeta.kb_relevance_score,
+            kb_threshold: effectiveMeta.kb_threshold,
+            fallback_reason: effectiveMeta.fallback_reason,
+            web_search_used: effectiveMeta.web_search_used,
             selected_evidence_quality: effectiveMeta.selected_evidence_quality,
             kb_score: effectiveMeta.kb_score,
             web_score: effectiveMeta.web_score,
@@ -245,10 +294,12 @@ export const ChatPage: React.FC = () => {
           };
 
           setMessages((prev) => {
-            if (prev.some((m) => m.id === finalAssistantMsg.id)) {
-              return prev.map((m) => (m.id === finalAssistantMsg.id ? finalAssistantMsg : m));
-            }
-            return [...prev, finalAssistantMsg];
+            const hasMsg = prev.some((m) => m.id === finalAssistantMsg.id);
+            const next = hasMsg
+              ? prev.map((m) => (m.id === finalAssistantMsg.id ? finalAssistantMsg : m))
+              : [...prev, finalAssistantMsg];
+            console.log('[ChatPage] setMessages onDone, total messages:', next.length);
+            return next;
           });
 
           setStreamingContent(null);
@@ -256,10 +307,12 @@ export const ChatPage: React.FC = () => {
           setStreamingMeta(null);
         },
         onError: (err: any) => {
-          console.error('Stream error:', err);
+          console.error('[ChatPage] Stream error:', err);
           setIsLoading(false);
           abortControllerRef.current = null;
+          currentStreamingChatIdRef.current = null;
 
+          // If content was already streamed, keep the generated text instead of replacing it with an error banner
           const resolvedContent = accumulatedText.trim()
             ? accumulatedText
             : 'Generation interrupted. Please try again.';
@@ -269,46 +322,97 @@ export const ChatPage: React.FC = () => {
             chat_id: targetChatId!,
             role: 'assistant',
             content: resolvedContent,
-            source_type: 'error',
+            source_type: accumulatedText.trim() ? (streamMetaRef.source_type || 'knowledge_base') : 'error',
             grounding_score: streamMetaRef.grounding_score,
             created_at: new Date().toISOString(),
             citations: streamMetaRef.citations || [],
             web_sources: streamMetaRef.web_sources || [],
           };
 
-          setMessages((prev) => [...prev, errorMsg]);
+          setMessages((prev) => {
+            const next = [...prev, errorMsg];
+            console.log('[ChatPage] setMessages onError, total messages:', next.length);
+            return next;
+          });
           setStreamingContent(null);
           setStreamingStage(null);
           setStreamingMeta(null);
         },
       },
-      controller.signal
+      controller.signal,
+      attachmentIds
     );
   };
 
+  // Export conversation transcript when 'export-current-chat' event is triggered from topbar
+  useEffect(() => {
+    const handleExport = () => {
+      if (messages.length === 0) {
+        alert('No messages in this chat to export.');
+        return;
+      }
+      const title = conversationId ? `SAP-Chat-${conversationId.slice(0, 8)}` : 'SAP-BRIM-Chat';
+      const text = messages
+        .map(
+          (m) =>
+            `### ${m.role === 'user' ? 'User' : 'SAP BRIM Assistant'} (${new Date(m.created_at).toLocaleString()}):\n\n${m.content}\n\n---\n`
+        )
+        .join('\n');
+      const blob = new Blob([`# ${title}\n\n${text}`], { type: 'text/markdown;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${title}.md`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
+    window.addEventListener('export-current-chat', handleExport);
+    return () => window.removeEventListener('export-current-chat', handleExport);
+  }, [messages, conversationId]);
+
+
+  const isChatting = messages.length > 0 || streamingContent !== null || isLoading;
+
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-52px)] min-w-0 bg-[#ffffff] dark:bg-[#000000] relative text-slate-800 dark:text-slate-100 font-sans transition-colors">
+    <div className={`chat-landing-root ${isChatting ? 'chatting' : ''}`}>
+      {/* 1. .top: flex: 1 1 0; min-height: 0; overflow-y: auto. Contains inner wrapper with margin-top: auto */}
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto flex flex-col relative bg-[#ffffff] dark:bg-[#000000] transition-colors"
+        className="chat-landing-top"
       >
-        {messages.length === 0 && streamingContent === null ? (
-          <div className="flex-1 flex items-center justify-center py-6">
-            <WelcomeScreen onSelectPrompt={(prompt) => handleSendMessage(prompt)} />
+        <div className="chat-landing-top-inner">
+          {/* Collapsible greeting heading (grid-template-rows: 1fr -> 0fr) */}
+          <div className="chat-landing-greeting-grid">
+            <div className="chat-landing-greeting-content">
+              <WelcomeScreen />
+            </div>
           </div>
-        ) : (
-          <div className="flex-1 pb-4">
+
+          {/* Messages list */}
+          <div className="chat-landing-messages max-w-3xl w-full mx-auto px-4 sm:px-6 pb-6" aria-live="polite">
             {messages.map((msg, idx) => {
               const isLast = idx === messages.length - 1;
               return (
                 <ChatMessage
                   key={msg.id}
                   message={msg}
-                  onSelectFollowUp={(q) => handleSendMessage(q)}
+                  onEdit={msg.role === 'user' ? () => setEditDraft(msg.content) : undefined}
                   onRetry={
                     isLast && (msg.source_type === 'error' || msg.source_type === 'interrupted')
                       ? () => handleSendMessage(lastUserPromptRef.current)
+                      : undefined
+                  }
+                  onRegenerate={
+                    isLast && msg.role === 'assistant' && !isLoading
+                      ? () => {
+                          const prevUser = [...messages.slice(0, idx)].reverse().find((m) => m.role === 'user');
+                          const query = prevUser ? prevUser.content : lastUserPromptRef.current;
+                          if (query) handleSendMessage(query);
+                        }
                       : undefined
                   }
                 />
@@ -325,6 +429,9 @@ export const ChatPage: React.FC = () => {
                   content: streamingContent,
                   source_type: streamingMeta?.source_type,
                   grounding_score: streamingMeta?.grounding_score,
+                  kb_grounding_score: streamingMeta?.kb_grounding_score,
+                  web_grounding_score: streamingMeta?.web_grounding_score,
+                  grounding_status: streamingMeta?.grounding_status,
                   created_at: new Date().toISOString(),
                   citations: streamingMeta?.citations || [],
                   web_sources: streamingMeta?.web_sources || [],
@@ -334,28 +441,24 @@ export const ChatPage: React.FC = () => {
               />
             )}
 
+            {/* Typing indicator while waiting for response */}
+            {isLoading && streamingContent === '' && (
+              <div className="flex items-center gap-2 px-4 py-3 max-w-3xl mx-auto text-slate-500 text-sm">
+                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-600 animate-bounce" />
+                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-600 animate-bounce [animation-delay:0.2s]" />
+                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-600 animate-bounce [animation-delay:0.4s]" />
+                <span className="text-xs text-slate-400 ml-1">{streamingStage || 'Thinking...'}</span>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
-        )}
-
-        {/* Floating "Jump to latest" button when scrolled up */}
-        {isUserScrolledUp && (
-          <button
-            onClick={() => {
-              setIsUserScrolledUp(false);
-              scrollToBottom(false);
-            }}
-            className="sticky bottom-4 self-center z-20 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-slate-900/95 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 shadow-xl text-xs font-medium transition cursor-pointer backdrop-blur-md hover:scale-105 active:scale-95"
-          >
-            <ChevronDown className="w-4 h-4 text-orange-400 animate-bounce" />
-            <span>Jump to latest</span>
-          </button>
-        )}
+        </div>
       </div>
 
       {/* Trial Preview Status Pill */}
       {isTrialUser && (
-        <div className="w-full max-w-4xl mx-auto px-4 pt-1 flex items-center justify-center">
+        <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-1 flex items-center justify-center">
           {trialCount < GUEST_QUERY_LIMIT ? (
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-50 dark:bg-[#0c0c12] border border-orange-200 dark:border-orange-500/25 text-[11px] text-orange-800 dark:text-orange-300 shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
@@ -381,11 +484,52 @@ export const ChatPage: React.FC = () => {
         </div>
       )}
 
-      {/* Bottom Input Area */}
-      <ChatInput
-        onSendMessage={handleSendMessage}
-        onStop={handleStopGeneration}
-        isLoading={isLoading}
+      {/* 2. .dock: flex: none. Contains the input form */}
+      <div className="chat-landing-dock">
+        <ChatInput
+          chatId={conversationId}
+          onSendMessage={handleSendMessage}
+          onStop={handleStopGeneration}
+          isLoading={isLoading}
+          draftMessage={editDraft}
+          onDraftMessageApplied={() => setEditDraft(null)}
+          onEnsureChatId={async () => {
+            if (conversationId) return conversationId;
+            const newChat = await apiCreateChat('SAP Screenshot Troubleshooting');
+            justCreatedChatIdRef.current = newChat.id;
+            navigate(`/app/chat/${newChat.id}`, { replace: true });
+            return newChat.id;
+          }}
+        />
+      </div>
+
+      {/* 3. .below: flex: 1 1 0; min-height: 0; overflow: hidden. Holds suggestion chips. Inert when chatting */}
+      <div
+        className="chat-landing-below"
+        inert={isChatting ? true : undefined}
+      >
+        <div className="chat-landing-chips">
+          {SUGGESTION_CHIPS.map((chip, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => handleSendMessage(chip.prompt)}
+              className="chat-landing-chip"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+
+      {/* Right Side Scroll Controls */}
+      <RightSideScrollButton
+        containerRef={messagesContainerRef}
+        onScrollToBottom={() => {
+          setIsUserScrolledUp(false);
+          scrollToBottom(false);
+        }}
       />
 
       <AuthLimitModal

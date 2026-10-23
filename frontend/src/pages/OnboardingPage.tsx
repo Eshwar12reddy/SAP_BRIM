@@ -30,7 +30,7 @@ export const OnboardingPage: React.FC = () => {
     <>
       <PageMeta
         title="Complete Your Profile"
-        description="Add your name and preferences to set up your Clyptusap.ai profile."
+        description="Add your name and preferences to set up your Clyptus.Ai profile."
       />
       <main className="login-layout">
         <section className="login-panel onboarding-panel">
@@ -38,7 +38,7 @@ export const OnboardingPage: React.FC = () => {
             <BrandLogo />
           </div>
           <Link to="/" className="login-back">
-            Clyptusap.ai
+            Clyptus.Ai
           </Link>
           <div className="login-card onboarding-card">
             <span className="eyebrow">ONE QUICK STEP</span>
@@ -79,7 +79,7 @@ export const OnboardingPage: React.FC = () => {
               )}
 
               <button className="button button-dark onboarding-submit cursor-pointer" type="submit">
-                Continue to Clyptusap.ai <ArrowRight size={16} />
+                Continue to Clyptus.Ai <ArrowRight size={16} />
               </button>
             </form>
           </div>

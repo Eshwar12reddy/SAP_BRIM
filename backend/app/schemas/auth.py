@@ -18,9 +18,15 @@ class UserResponse(BaseModel):
     name: str
     is_admin: bool
     role: str = "consultant"
+    custom_instructions_about_user: Optional[str] = None
+    custom_instructions_how_to_respond: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class CustomInstructionsUpdate(BaseModel):
+    about_user: Optional[str] = Field(None, max_length=2000)
+    how_to_respond: Optional[str] = Field(None, max_length=2000)
 
 class Token(BaseModel):
     access_token: str

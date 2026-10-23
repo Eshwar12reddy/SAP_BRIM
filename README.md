@@ -1,6 +1,6 @@
 # SAP Knowledge Assistant (SAP_BRIM)
 
-Enterprise AI Assistant with Developer-Managed RAG, strict SAP domain boundaries, hybrid retrieval (pgvector dense embeddings + lexical search + cross-encoder reranking), grounding guardrails, and authoritative SAP web fallback.
+Enterprise AI Assistant with Developer-Managed RAG, strict SAP domain boundaries, hybrid retrieval (dense embeddings + lexical search + heuristic reranking), grounding guardrails, and authoritative SAP web fallback.
 
 ---
 
@@ -46,7 +46,14 @@ GROQ_API_KEY=your_groq_key_if_using_groq
 # Web Fallback (Tavily search for official SAP docs)
 WEB_FALLBACK_ENABLED=True
 WEB_SEARCH_API_KEY=your_tavily_key_here
+INTERNAL_EVIDENCE_THRESHOLD=0.75
 ```
+
+#### Evidence routing
+
+The KB route uses a deterministic relevance rubric normalized to 0–100: 50% of the best raw hybrid retrieval score, 35% exact query-term coverage across the top four chunks, and 15% exact requested technical-identifier coverage. When a question has no technical identifier, the 15% is added to term coverage. The score is capped below 75 if the best retrieval score is below 65/100, term coverage is below 60%, or a requested technical identifier is absent. Exactly 75 selects KB. Any failed gate selects relevant approved SAP web passages only (help.sap.com and learning.sap.com first; community and blogs only if primary documentation is insufficient); KB passages are omitted from answer and repair prompts. If no relevant web passage remains, the assistant returns an insufficient-evidence answer without calling the answer model.
+
+This score is a routing rubric, not a statistically calibrated probability that a passage is factually correct. The underlying hybrid and reranking scores are retrieval signals, not truth probabilities.
 
 #### Step 3: Install Python Dependencies
 ```bash
@@ -135,7 +142,7 @@ pytest backend/tests -v
 - **RAG Pipeline**:
   - Embedding Model: `sentence-transformers/all-MiniLM-L6-v2`
   - Hybrid Search: Dense Vector Retrieval + BM25 Lexical Retrieval
-  - Re-ranking: Cross-Encoder reranker
+  - Re-ranking: Multi-signal heuristic reranker (hybrid score, heading match, phrase match, and requested identifier match)
   - Grounding Guardrails: Strict relevance & hallucination score checks
   - SAP Restriction: Pre-flight domain intent classifier
 - **Web Fallback**: Authoritative SAP documentation retrieval via Tavily (`help.sap.com`, `community.sap.com`)

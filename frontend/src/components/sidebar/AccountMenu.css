@@ -1,0 +1,180 @@
+/* Account Dropdown Menu Styles */
+.account-menu-panel {
+  position: fixed;
+  z-index: 9999;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 16px 36px -4px rgba(15, 23, 42, 0.12), 0 4px 12px -2px rgba(15, 23, 42, 0.06);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+  animation: accountMenuAppear 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+
+@keyframes accountMenuAppear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dark .account-menu-panel {
+  background: #0f0f17;
+  border-color: #232334;
+  box-shadow: 0 18px 40px -4px rgba(0, 0, 0, 0.6), 0 4px 14px -2px rgba(0, 0, 0, 0.4);
+}
+
+.account-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  height: 40px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  outline: none;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
+/* 44px touch targets on mobile / small screens */
+@media (max-width: 640px) {
+  .account-menu-item {
+    min-height: 44px;
+    height: 44px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+}
+
+.account-menu-item:hover,
+.account-menu-item.is-focused {
+  background-color: #e0f2fe;
+  color: #0f172a;
+}
+
+.account-menu-item:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: -1px;
+  background-color: #e0f2fe;
+}
+
+.dark .account-menu-item {
+  color: #e2e8f0;
+}
+
+.dark .account-menu-item:hover,
+.dark .account-menu-item.is-focused {
+  background-color: #1a1a27;
+  color: #ffffff;
+}
+
+.dark .account-menu-item:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: -1px;
+}
+
+.account-menu-icon {
+  width: 16px;
+  height: 16px;
+  color: #475569;
+  flex-shrink: 0;
+  transition: color 0.12s ease;
+}
+
+.account-menu-item:hover .account-menu-icon,
+.account-menu-item.is-focused .account-menu-icon {
+  color: #0f172a;
+}
+
+.dark .account-menu-icon {
+  color: #94a3b8;
+}
+
+.dark .account-menu-item:hover .account-menu-icon,
+.dark .account-menu-item.is-focused .account-menu-icon {
+  color: #f8fafc;
+}
+
+.account-menu-right-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.account-menu-item:hover .account-menu-right-icon,
+.account-menu-item.is-focused .account-menu-right-icon {
+  color: #0f172a;
+}
+
+.dark .account-menu-right-icon {
+  color: #64748b;
+}
+
+.dark .account-menu-item:hover .account-menu-right-icon,
+.dark .account-menu-item.is-focused .account-menu-right-icon {
+  color: #cbd5e1;
+}
+
+.account-menu-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 4px 6px;
+  border: none;
+}
+
+.dark .account-menu-divider {
+  background: #1f1f2e;
+}
+
+.account-menu-item.account-menu-logout:hover,
+.account-menu-item.account-menu-logout.is-focused {
+  background-color: #fef2f2;
+  color: #dc2626;
+}
+
+.account-menu-item.account-menu-logout:hover .account-menu-icon,
+.account-menu-item.account-menu-logout.is-focused .account-menu-icon {
+  color: #dc2626;
+}
+
+.dark .account-menu-item.account-menu-logout:hover,
+.dark .account-menu-item.account-menu-logout.is-focused {
+  background-color: rgba(225, 29, 72, 0.14);
+  color: #f87171;
+}
+
+.dark .account-menu-item.account-menu-logout:hover .account-menu-icon,
+.dark .account-menu-item.account-menu-logout.is-focused .account-menu-icon {
+  color: #f87171;
+}
+
+/* Chevron rotation on account button */
+.account-button .account-chevron {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-left: auto;
+}
+
+.account-button .account-chevron.rotate-180 {
+  transform: rotate(180deg);
+}

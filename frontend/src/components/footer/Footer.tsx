@@ -23,11 +23,11 @@ export const Footer: React.FC = () => {
         <div className="footer-links">
           <span>GET STARTED</span>
           <Link to="/login">Sign in</Link>
-          <Link to="/login">Ask Clyptusap.ai <ArrowUpRight size={14} /></Link>
+          <Link to="/login">Ask Clyptus.Ai <ArrowUpRight size={14} /></Link>
         </div>
       </div>
       <div className="footer-bottom">
-        <span>© {new Date().getFullYear()} Clyptusap.ai</span>
+        <span>© {new Date().getFullYear()} Clyptus.Ai</span>
         <span>SAP-focused · RAG-powered · Grounded in retrieved knowledge</span>
       </div>
     </footer>

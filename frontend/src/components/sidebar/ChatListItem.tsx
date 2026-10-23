@@ -9,9 +9,11 @@ import {
   Share2,
   Pin,
   PinOff,
-  Archive
+  Archive,
+  Download
 } from 'lucide-react';
 import type { Chat } from '../../types';
+import { apiExportChat } from '../../services/api';
 
 interface ChatListItemProps {
   chat: Chat;
@@ -187,7 +189,29 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
               <span>{isArchived ? 'Unarchive' : 'Archive'}</span>
             </button>
 
-            <div className="border-t border-slate-800 my-1" />
+            {/* Export */}
+            <button
+              onClick={async () => {
+                setShowMenu(false);
+                try {
+                  const { blob, filename } = await apiExportChat(chat.id, 'markdown');
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                } catch (err) {
+                  console.error('Export error:', err);
+                }
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 hover:text-white transition"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-400" />
+              <span>Export (.md)</span>
+            </button>
 
             {/* Delete */}
             <button
